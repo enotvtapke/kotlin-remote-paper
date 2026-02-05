@@ -11,14 +11,14 @@
 \usepackage[a4paper,top=3cm,bottom=3cm,left=3cm,right=3cm]{geometry}
 \renewcommand{\familydefault}{\sfdefault}
 \usepackage{helvet}
-\usepackage[T2A, T1]{fontenc}
+\usepackage[T2A, T1]{fontenc} %%T2A is needed to support russian
 \usepackage[russian, english]{babel}     %% typographie française
 \usepackage{csquotes}
 \usepackage[style=numeric,language=english]{biblatex}
 \usepackage{parskip}		%% blank lines between paragraphs, no indent
 \usepackage[margin=1cm]{caption}%% give long captions a margin
 \usepackage{booktabs}           %% typesetting nice tables
-\usepackage{minted}%% typesetting code nicely
+\usepackage[cache=false]{minted}%% typesetting code nicely
 \usepackage[pdftex]{graphicx}	%% include graphics, preferrably pdf
 \usepackage[pdftex]{hyperref}	%% many PDF options can be set here
 \pdfadjustspacing=1		%% force LaTeX-like character spacing
@@ -151,15 +151,15 @@ highlight the importance of your project.
 
 (target size: 15-20 lines)
 
-A large subset of modern software uses network interactions extensively. One of the languages that is
-actively used to develop such software is Kotlin. However, standard for Kotlin technologies like
+A large subset of modern software uses network interactions extensively. One of the languages that
+is actively used to develop such software is Kotlin. However, standard for Kotlin technologies like
 REST for organising network interactions are overly explicit and require writing a lot of
 additional code by applying specific templates. Such code is usually called \term{boilerplate code}.
 
-In this thesis, an alternative mechanism for organising network interactions in Kotlin was developed.
-This mechanism uses approach uncommon for Kotlin, called Remote Procedure Call (RPC). This approach
-allows the invocation of Kotlin function on a remote machine, provided the function is annotated in a
-special way. Such annotated functions are called \term{remote functions}.
+In this thesis, an alternative mechanism for organising network interactions in Kotlin was
+developed. This mechanism uses approach uncommon for Kotlin, called Remote Procedure Call (RPC).
+This approach allows the invocation of Kotlin function on a remote machine, provided the function
+is annotated in a special way. Such annotated functions are called \term{remote functions}.
 
 The novelty of the mechanism developed in this work lies in the usage of coeffects. In contrast
 with traditional RPC, mechanism developed in this work uses context in which remote function is

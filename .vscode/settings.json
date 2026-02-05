@@ -3,6 +3,7 @@
         100
     ],
     "editor.minimap.enabled": false,
+    "latex-workshop.latex.outDir": "%DIR%/build",
     "latex-workshop.formatting.latex": "latexindent",
     "latex-workshop.formatting.latexindent.args": [
         "-c",
@@ -10,5 +11,45 @@
         "-l",
         "-m",
         "%TMPFILE%",
-    ]
+    ],
+    "latex-workshop.latex.recipes": [
+        {
+            "name": "pdflatex",
+            "tools": [
+                "pdflatex"
+            ]
+        },
+        {
+            "name": "pdflatex -> biber -> pdflatex * 2",
+            "tools": [
+                "pdflatex",
+                "biber",
+                "pdflatex",
+                "pdflatex"
+            ]
+        },
+    ],
+    "latex-workshop.latex.tools": [
+        {
+            "name": "pdflatex",
+            "command": "pdflatex",
+            "args": [
+                "-synctex=1",
+                "-interaction=nonstopmode",
+                "-file-line-error",
+                "-shell-escape",
+                "-output-directory=%OUTDIR%",
+                "%DOC%"
+            ],
+            "env": {}
+        },
+        {
+            "name": "biber",
+            "command": "biber",
+            "args": [
+                "%OUTDIR%/%DOCFILE%"
+            ],
+            "env": {}
+        },
+    ],
 }
