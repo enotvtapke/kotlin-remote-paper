@@ -1,0 +1,10 @@
+modifyLineBreaks:
+    text:
+        # 1: add line breaks to long lines
+        # -1: remove line breaks from short lines
+        # 0: do nothing
+        replacement: 1
+        # Set your desired maximum line length
+        columns: 80
+    # This ensures it happens globally across your document
+    textBlocks: 1
