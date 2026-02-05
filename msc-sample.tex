@@ -150,20 +150,20 @@ description in the abstract, but use it to motivate the work and to
 highlight the importance of your project.
 
 (target size: 15-20 lines)
-
-Large subset of modern computer programs often use network interactions. One of the languages
-that are actively used to write such programs is Kotlin. Unfortunately, technologies like REST
+e
+Large subset of modern computer programs often use network interactions. One of the languages that
+are actively used to write such programs is Kotlin. Unfortunately, technologies like REST
 historically utilized in Kotlin for organising network interactions are very explicit and require
-to write a lot of additional, not very intelligent code by applying specific templates.
-Such code is usually called
-\term{boilerplate code}. In this thesis alternative mechanism for organising network interactions
-in Kotlin was developed. This mechanism uses uncommon for Kotlin approach, called remote procedures
-calls or RPC in short. This approach allows to call arbitrary Kotlin function on remote machine,
-provided function is annotated in a special way. Such annotated functions is called
-\term{remote functions}.This approach greatly decreases the amount of boilerplate code required to organise network interacions.
-The uniqueness of the RPC mechanism developed in this work is that it uses context in which
-annotated function is invoked to determine on what machine function should be evaluated. In other words
-annotated functions use coeffects to organise network calls.
+to write a lot of additional, not very intelligent code by applying specific templates. Such code
+is usually called \term{boilerplate code}. In this thesis alternative mechanism for organising
+network interactions in Kotlin was developed. This mechanism uses uncommon for Kotlin approach,
+called remote procedures calls or RPC in short. This approach allows to call arbitrary Kotlin
+function on remote machine, provided function is annotated in a special way. Such annotated
+functions is called \term{remote functions}.This approach greatly decreases the amount of
+boilerplate code required to organise network interacions. The uniqueness of the RPC
+mechanismdeveloped in this work is that it uses context in which annotated function is invoke to
+determine on what machine function should be evaluated. In other words annotated functions use
+coeffects to organise network calls.
 
 \begin{otherlanguage}{russian}
   Large subset of modern computer programs often use network interactions. One of the languages 

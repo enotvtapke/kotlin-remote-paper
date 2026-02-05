@@ -1,2 +1,14 @@
 {
+    "editor.rulers": [
+        100
+    ],
+    "editor.minimap.enabled": false,
+    "latex-workshop.formatting.latex": "latexindent",
+    "latex-workshop.formatting.latexindent.args": [
+        "-c",
+        "%DIR%/",
+        "-l",
+        "-m",
+        "%TMPFILE%",
+    ]
 }
