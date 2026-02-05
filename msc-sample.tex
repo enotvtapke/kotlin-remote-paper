@@ -23,11 +23,11 @@
 \usepackage[pdftex]{hyperref}	%% many PDF options can be set here
 \pdfadjustspacing=1		%% force LaTeX-like character spacing
 
-\newcommand{\mylastname}{Sample}
-\newcommand{\myfirstname}{Joe}
+\newcommand{\mylastname}{Stupnikov}
+\newcommand{\myfirstname}{Aleksandr}
 \newcommand{\mynumber}{00101010}
 \newcommand{\myname}{\myfirstname{} \mylastname{}}
-\newcommand{\mytitle}{On the Possibility of the Impossible}
+\newcommand{\mytitle}{Context-Aware Remote Procedure Calls in Kotlin}
 \newcommand{\mysupervisor}{Prof.~V.~Confused}
 
 %% My commands
@@ -150,32 +150,22 @@ description in the abstract, but use it to motivate the work and to
 highlight the importance of your project.
 
 (target size: 15-20 lines)
-e
-Large subset of modern computer programs often use network interactions. One of the languages that
-are actively used to write such programs is Kotlin. Unfortunately, technologies like REST
-historically utilized in Kotlin for organising network interactions are very explicit and require
-to write a lot of additional, not very intelligent code by applying specific templates. Such code
-is usually called \term{boilerplate code}. In this thesis alternative mechanism for organising
-network interactions in Kotlin was developed. This mechanism uses uncommon for Kotlin approach,
-called remote procedures calls or RPC in short. This approach allows to call arbitrary Kotlin
-function on remote machine, provided function is annotated in a special way. Such annotated
-functions is called \term{remote functions}.This approach greatly decreases the amount of
-boilerplate code required to organise network interacions. The uniqueness of the RPC
-mechanismdeveloped in this work is that it uses context in which annotated function is invoke to
-determine on what machine function should be evaluated. In other words annotated functions use
-coeffects to organise network calls.
 
-\begin{otherlanguage}{russian}
-  Large subset of modern computer programs often use network interactions. One of the languages 
-  that actively used to write such programs is Kotlin. Unfortunately, mechanisms like REST
-  historically utilized in Kotlin for organising network interactions are very explicit and require
-  to write a lot of additional, not intelligent code. Such code is usually called 
-  "boilerplate code". In this thesis alternative mechanism for network interactions in Kotlin was 
-  developed, that uses remote procedures calls or RPC in short approach. This greatly decrease the 
-  amount of boilerplate required to organise network interacions. The uniqueness of the RPC 
-  mechanism developed in this work is that it uses context in which function is invoked to determine
-  on what machine this function should be evaluated.
-\end{otherlanguage}
+A large subset of modern software uses network interactions extensively. One of the languages that is
+actively used to develop such software is Kotlin. However, standard for Kotlin technologies like
+REST for organising network interactions are overly explicit and require writing a lot of
+additional code by applying specific templates. Such code is usually called \term{boilerplate code}.
+
+In this thesis, an alternative mechanism for organising network interactions in Kotlin was developed.
+This mechanism uses approach uncommon for Kotlin, called Remote Procedure Call (RPC). This approach
+allows the invocation of Kotlin function on a remote machine, provided the function is annotated in a
+special way. Such annotated functions are called \term{remote functions}.
+
+The novelty of the mechanism developed in this work lies in the usage of coeffects. In contrast
+with traditional RPC, mechanism developed in this work uses context in which remote function is
+invoked to determine on what machine function should be executed. This leads to more implicit
+organisation of network interactions and as a result greatly reduces boilerplate code required for
+distributed applications.
 
 \newpage
 \tableofcontents
