@@ -151,44 +151,33 @@ pizzaShop.orderPizza(Pizza("Pepperoni"))
 
 ---
 
-# Background — Coeffects
+# Background — Context Parameters
 
-**Coeffects** — a type-system mechanism for tracking how computations *depend on their environment*.
+Kotlin's experimental *context parameters* — implicit function parameters resolved from the enclosing scope.
 
-- Dual of *effects*: effects describe what a computation **does**, coeffects describe what it **requires**
-- Implemented via *indexed comonads* in theory
-- Practically expressible as *implicit parameters*
+```kotlin
+context(logger: Logger)
+fun greet(name: String) {
+    logger.info("Hello, $name")  // logger is passed implicitly
+}
 
-> A remote function *requires* a way to reach a remote machine — this is a **coeffect**.
-
----
-
-# Background — Functional RPC (Servant in Haskell)
-
-```haskell
-position :: Int -> Int -> ClientM Position        -- remote procedure
-hello    :: Maybe String -> ClientM HelloMessage  -- remote procedure
-
-queries :: ClientM (Position, HelloMessage)
-queries = do
-  pos     <- position 10 10
-  message <- hello (Just "servant")
-  return (pos, message)
-
-run :: IO ()
-run = do
-  Right (pos, message) <- runClientM queries ... "localhost"
-  print pos
+fun main() {
+    val logger = Logger()
+    context(logger) {
+        greet("World")  // no need to pass logger explicitly
+    }
+}
 ```
 
-- `ClientM` is a Reader monad — carries remote config implicitly
-- No service interfaces, top-level functions work, remote procedures are explicit
+- Declared with `context(...)` before the function
+- Resolved **automatically** at the call site — no explicit argument needed
+- Provide a way to express **environmental requirements** in the type system
 
 ---
 
-# Key Idea — Context Parameters as Coeffects
+# Key Idea — Context Parameters for RPC
 
-Kotlin's experimental *context parameters* = implicit parameters.
+Use context parameters to carry **remote execution configuration** implicitly:
 
 ```kotlin
 context(ctx: RemoteContext<RemoteConfig>)
@@ -198,7 +187,7 @@ suspend fun multiply(lhs: Long, rhs: Long): Long
 - `RemoteContext` is resolved **implicitly** from the call site
 - Determines **where** the function executes (locally or remotely)
 - Describes **how** to execute the function (if it executes remotely)
-- Makes remote calls **visible at the type level**
+- Makes remote calls **visible at the type level** — you always see the context parameter in the signature
 
 ---
 
@@ -395,9 +384,11 @@ What code must be written **for each new remote function**:
 
 # Summary
 
-1. Developed Kotlin Remote — RPC framework using context parameters as coeffects, eliminating service interface boilerplate
+1. Developed Kotlin Remote — lightweight RPC framework that uses context parameters to eliminate service interface boilerplate
 
 2. All objectives were completed
+
+3. All requirements were met
 
 ---
 
@@ -656,3 +647,34 @@ Type system enforces which functions are callable from where.
 
 </div>
 </div>
+
+---
+
+# Background — Coeffects
+
+**Coeffects** — a type-system mechanism for tracking how computations *depend on their environment*.
+
+- Dual of *effects*: effects describe what a computation **does**, coeffects describe what it **requires**
+- Implemented via *indexed comonads* in theory
+- Practically expressible as *implicit parameters*
+
+> A remote function *requires* a way to reach a remote machine — this is a **coeffect**.
+
+---
+
+# Background — Functional RPC (Servant in Haskell)
+
+```haskell
+position :: Int -> Int -> ClientM Position        -- remote procedure
+hello    :: Maybe String -> ClientM HelloMessage  -- remote procedure
+
+queries :: ClientM (Position, HelloMessage)
+queries = do
+  pos     <- position 10 10
+  message <- hello (Just "servant")
+  return (pos, message)
+
+run :: IO ()
+run = do
+  Right (pos, message) <- runClientM queries ... "localhost"
+  print pos

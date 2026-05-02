@@ -31,17 +31,11 @@ Now, the specific technical requirements the framework must satisfy. First, enab
 
 ---
 
-Before describing the solution, let me introduce the theoretical foundation. Coeffects are a type-system mechanism for tracking how computations depend on their environment. They are the dual of effects: while effects describe what a computation does — like writing to a file or throwing an exception — coeffects describe what a computation requires from its environment. In theory, a wide subset of coeffects are modeled using indexed comonads. In practice, narrower subset of coeffects can be expressed as implicit parameters — values that are passed to a function automatically from the surrounding context, rather than explicitly by the caller. The key insight is: a remote function is basically a function with coeffect, because it requires from an environment a way to execute code on a remote machine. This requirement is a coeffect.
+Before I describe the solution, let me briefly explain the Kotlin feature we build on — context parameters. They are an experimental Kotlin feature that lets you declare implicit function parameters. In this example, the greet function requires a Logger, but the caller does not pass it explicitly. Instead, it is resolved automatically from the enclosing context block. The key properties are: context parameters are declared in the function signature, so you can see the requirement in the type; they are resolved automatically at the call site; and they provide a way to express that a function depends on something from its environment — without threading that dependency manually through every call.
 
 ---
 
-This idea is not new and is used in a world of functional languages. For example, in Haskell library Servant remote procedures return values in the ClientM monad. ClientM is essentially a Reader monad — it implicitly carries the remote server configuration and describes a coeffect. On a slide hello and position functions result in a remote call, and it is clear from their return value type.
-
-Notice that there are no service interfaces, top-level functions work perfectly well, and the return type ClientM makes it explicit that this is a remote call. This is exactly the API ergonomics we want. The question is how to bring this to Kotlin — a language without monads.
-
----
-
-The answer is Kotlin's experimental feature called context parameters. Context parameters are basically implicit parameters — they are resolved automatically from the enclosing scope, without the caller having to pass them explicitly. It means that they can express a coeffect. In our framework, a remote function declares a context parameter of type RemoteContext. This RemoteContext determines where the function executes — locally or on a remote server. It also describes how to execute function in case it executes remotely. RemoteContext is resolved implicitly at the call site, just like the Reader monad in Haskell. And makes remote calls visible at the type level. This brings the extended functional RPC approach to Kotlin without using constructions foreign to Kotlin (like monads).
+Our key idea is to use context parameters to carry remote execution configuration. A remote function declares a context parameter of type RemoteContext. This context determines where the function executes — locally or on a remote server — and describes how to reach that server. It is resolved implicitly at the call site, so the caller does not pass it manually. And critically, it makes remote calls visible at the type level — you always see the context parameter in the function signature, so you always know this function may go over the network.
 
 ---
 
@@ -81,4 +75,4 @@ The framework has several limitations that are important to acknowledge. It is o
 
 ---
 
-To summarize. We developed Kotlin Remote — an RPC framework that uses context parameters as coeffects to eliminate the need for service interfaces. All four objectives were completed: any named Kotlin function can be called remotely, remote calls are visible at the type level, distributed objects are supported, and the framework is fully compatible with Kotlin Multiplatform. Thank you for your attention. I am ready for questions.
+To summarize. We developed Kotlin Remote — lightweight RPC framework that uses context parameters to eliminate service interface boilerplate. The framework works exceptionally well in a shared codebase. All four objectives were completed and all the requirements were met. Thank you for your attention. I am ready for questions.
