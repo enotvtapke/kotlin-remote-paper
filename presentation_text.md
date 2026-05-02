@@ -3,7 +3,7 @@ marp: true
 paginate: true
 ---
 
-Good day. My name is Aleksandr Stupnikov. The topic of my master thesis is "Context-Aware Remote Procedure Calls in Kotlin". Yes, I changed the title. But let's proceed.
+Good day. My name is Aleksandr Stupnikov. The topic of my master thesis is "Lightweight RPC for Kotlin Multiplatform".
 
 ---
 
@@ -15,7 +15,7 @@ There are two main technologies used for network communication in Kotlin today. 
 
 ---
 
-With Ktor, the developer must manually write routing logic — specifying URL paths and HTTP methods. Developer also must handle serialization and deserialization of request and response bodies, write  HTTP client calls and manage error handling. This gives fine-grained control, which is valuable when you need it — for example, for complex REST APIs with custom headers. But for many use cases, especially internal service-to-service communication, this level of control is unnecessary, and the boilerplate is pure overhead.
+With Ktor, the developer must manually write routing logic — specifying URL paths and HTTP methods. Developer also must handle serialization and deserialization of request and response bodies, write HTTP client calls and manage error handling. This gives fine-grained control, which is valuable when you need it — for example, for complex REST APIs with custom headers. But for many use cases, especially internal service-to-service communication, this level of control is unnecessary, and the boilerplate is pure overhead.
 
 ---
 
@@ -23,7 +23,11 @@ gRPC and Kotlin RPC take a different approach. They follow the Remote Method Inv
 
 ---
 
-The goal of this thesis is to develop an RPC framework for Kotlin that reduces boilerplate compared to existing approaches. The specific objectives are as follows. First, enable calling any named Kotlin function remotely — not just methods inside service interfaces. Second, distinguish remote functions from local ones at the type level, so that the developer always knows when a network call is happening. Third, support distributed objects — remote classes with server-side state. Fourth, maintain compatibility with Kotlin Multiplatform, so the framework works on JVM, JavaScript, Native, and WebAssembly targets.
+The goal of this thesis is to develop an RPC framework for Kotlin Multiplatform that reduces boilerplate compared to existing approaches. The objectives are structured as follows. First, prototype an RPC framework that uses context parameters as the mechanism for expressing remote calls. I will explain context parameters later. Second, prototype support for distributed objects — remote classes whose state lives on the server. Third, implement and test the framework as a Kotlin compiler plugin with a runtime library. Fourth, evaluate the result by comparing it with existing alternatives — Ktor, gRPC, and Kotlin RPC — in terms of boilerplate and developer experience.
+
+---
+
+Now, the specific technical requirements the framework must satisfy. First, enable calling any named Kotlin function remotely — not just methods inside service interfaces. This means top-level functions, extension functions, class methods should all be callable. Second, distinguish remote functions from local ones at the type level, so that the developer always knows when a network call is happening — this addresses the invisibility problem we saw with gRPC and Kotlin RPC. Third, preserve Kotlin Multiplatform compatibility, so the framework works on all targets — JVM, JavaScript, Native, and WebAssembly — without relying on reflection.
 
 ---
 

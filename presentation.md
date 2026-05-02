@@ -63,7 +63,7 @@ style: |
 
 <!-- _class: title -->
 
-# Context-Aware Remote Procedure Calls in Kotlin
+# Lightweight RPC for Kotlin Multiplatform
 
 ### Master Thesis
 
@@ -134,13 +134,20 @@ pizzaShop.orderPizza(Pizza("Pepperoni"))
 
 # Goals and Objectives
 
-**Goal:** Develop an RPC framework for Kotlin that reduce boilerplate compared to existing approaches
+**Goal:** Develop an RPC framework for Kotlin Multiplatform that reduces boilerplate compared to existing approaches
 
 **Objectives:**
+1. Prototype RPC framework using *context parameters*
+2. Prototype support for distributed objects
+3. Implement and test
+4. Evaluate by comparing with alternatives
+
+---
+
+# Requirements
 1. Enable calling **any** named Kotlin function remotely
 2. Distinguish remote functions from local ones **at the type level**
-3. Support distributed objects
-4. Maintain **Kotlin Multiplatform** compatibility
+3. Preserve **Kotlin Multiplatform** compatibility (no reflection)
 
 ---
 
