@@ -76,13 +76,14 @@ Actual supervisor: Ilmir Usmanov
 
 Kotlin is used for **network-heavy** software: microservices, client-server apps, distributed systems.
 
-Application code splits into two parts:
+Application code:
 
 * **Business logic** — unique per application, high value
 * **Network code** — repetitive across applications, *boilerplate*
 
-The network part should be minimal, so developers focus on business logic.
-But it is not.
+<br>
+
+**Problem:** network part is too big 
 
 ---
 
@@ -180,7 +181,7 @@ run = do
 
 # Key Idea — Context Parameters as Coeffects
 
-Kotlin's experimental *context parameters* (KEEP-0367) = implicit parameters.
+Kotlin's experimental *context parameters* = implicit parameters.
 
 ```kotlin
 context(ctx: RemoteContext<RemoteConfig>)
@@ -189,13 +190,12 @@ suspend fun multiply(lhs: Long, rhs: Long): Long
 
 - `RemoteContext` is resolved **implicitly** from the call site
 - Determines **where** the function executes (locally or remotely)
+- Describes **how** to execute the function (if it executes remotely)
 - Makes remote calls **visible at the type level**
-
-This brings the functional RPC approach to Kotlin without sacrificing OOP compatibility.
 
 ---
 
-# RemoteContext — The Type Hierarchy
+# RemoteContext Implememntation
 
 ```kotlin
 sealed interface RemoteContext<out T : RemoteConfig>
@@ -203,8 +203,8 @@ object LocalContext : RemoteContext<Nothing>
 class ConfiguredContext<T : RemoteConfig>(val config: T) : RemoteContext<T>
 ```
 
-- `Nothing` is Kotlin's bottom type → subtype of every type
-- `out T` (covariance) → `RemoteContext<Nothing>` subtypes `RemoteContext<T>` for **all** `T`
+<!-- - `Nothing` is Kotlin's bottom type → subtype of every type
+- `out T` (covariance) → `RemoteContext<Nothing>` subtypes `RemoteContext<T>` for **all** `T` -->
 - Any `@Remote` function can be called in `LocalContext` — always type-checks
 - On the server, functions are invoked in `LocalContext` → original body executes
 
@@ -339,7 +339,7 @@ ServerConfig.runWith {
 
 # Ktor Integration
 
-Kotlin Remote is **transport-agnostic** by design. `core-ktor` module provides HTTP integration:
+Framework is **transport-agnostic** by design. `core-ktor` module provides HTTP integration:
 
 ```kotlin
 // Server setup — full access to Ktor ecosystem
@@ -379,11 +379,20 @@ What code must be written **for each new remote function**:
 
 # Limitations
 
-- **Optimized for shared codebase** — works better when client and server use the same Kotlin module
+- **Optimized for shared codebase** — works better when client and server use the same function
 - **No cross-language support** — both sides must be Kotlin
 - **Serialization** — remote functions' parameters and return values must be serializable
 - **Coroutine context** — not preserved across remote boundary
-- **Stack traces on non-JVM** — passed as strings, cannot reconstruct original trace
+
+---
+
+# Summary
+
+1. Developed Kotlin Remote — RPC framework using context parameters as coeffects, eliminating service interface boilerplate
+
+2. All objectives were completed
+
+---
 
 ---
 
@@ -398,14 +407,6 @@ What code must be written **for each new remote function**:
 3. **Performance optimization** — skip default parameters
 
 4. **Security hardening** — stub URL validation
-
----
-
-# Summary
-
-1. Developed Kotlin Remote — RPC framework using context parameters as coeffects, eliminating service interface boilerplate
-
-2. All objectives were completed
 
 ---
 
