@@ -7,7 +7,7 @@ Good day. My name is Aleksandr Stupnikov. The topic of my master thesis is "Ligh
 
 ---
 
-Kotlin is the languages that is vastly used for building software that communicates over the network. Such as backend microservices, client-server applications, distributed systems, etc. In all of these, the application code naturally splits into two parts. The first is business logic. It is unique, high-value part specific to each application. The second part is network code like routing, serialization, HTTP client setup, error handling. This network code is largely repetitive across applications. In other words it is boilerplate. Ideally, the network part should be as small as possible so that developers can focus on business logic. But with current Kotlin tools, the network part remains quite large. Let's look at why.
+Kotlin is the language that is vastly used for building software that communicates over the network — backend microservices, client-server applications, distributed systems. These projects often use a shared codebase model, where client and server, or multiple microservices, live in the same Kotlin project and share data types and logic. In such projects, the application code naturally splits into two parts. The first is business logic — the unique, high-value part specific to each application. The second is network code — routing, serialization, HTTP client setup, error handling. This network code is largely repetitive across applications. In other words, it is boilerplate. Ideally, the network part should be as small as possible so that developers can focus on business logic. But even in a shared codebase, where both sides already have access to the same functions and types, the network part remains quite large. Let's look at why.
 
 ---
 
@@ -23,7 +23,7 @@ gRPC and Kotlin RPC take a different approach. They follow the Remote Method Inv
 
 ---
 
-The goal of this thesis is to develop an RPC framework for Kotlin Multiplatform that reduces boilerplate compared to existing approaches. The objectives are structured as follows. First, prototype an RPC framework that uses context parameters as the mechanism for expressing remote calls. I will explain context parameters later. Second, prototype support for distributed objects — remote classes whose state lives on the server. Third, implement and test the framework as a Kotlin compiler plugin with a runtime library. Fourth, evaluate the result by comparing it with existing alternatives — Ktor, gRPC, and Kotlin RPC — in terms of boilerplate and developer experience.
+The goal of this thesis is to develop an RPC framework for Kotlin Multiplatform shared-codebase projects that reduces boilerplate compared to existing approaches. The objectives are structured as follows. First, prototype an RPC framework that uses context parameters as the mechanism for expressing remote calls. I will explain context parameters later. Second, prototype support for distributed objects — remote classes whose state lives on the server. Third, implement and test the framework as a Kotlin compiler plugin with a runtime library. Fourth, evaluate the result by comparing it with existing alternatives — Ktor, gRPC, and Kotlin RPC — in terms of boilerplate and developer experience.
 
 ---
 
@@ -71,8 +71,8 @@ Let's compare what a developer must write for each new remote function. With gRP
 
 ---
 
-The framework has several limitations that are important to acknowledge. It is optimized for a shared-codebase model, where client and server are compiled together and have access to the same remote function. However, it is possible to completely separate client and server code just with a little more boilerplate. Another limitation is that there is no cross-language support — both sides must be Kotlin. On top of that all parameters and return values of remote functions must be serializable (of course). The last limitation is that the coroutine context is not preserved across the remote boundary.
+The framework has several limitations that are important to acknowledge. As I mentioned at the beginning, the framework is designed for the shared-codebase model — it works best when client and server are in the same Kotlin project and share the remote function source code. If you need fully separate codebases, you would have to duplicate function signatures, which adds some boilerplate back. This is a conscious design trade-off: by assuming a shared codebase, we eliminate the need for separate interface definitions entirely. The other limitations are: both sides must be Kotlin — no cross-language support; all parameters and return values must be serializable; and the coroutine context is not preserved across the remote boundary.
 
 ---
 
-To summarize. We developed Kotlin Remote — lightweight RPC framework that uses context parameters to eliminate service interface boilerplate. The framework works exceptionally well in a shared codebase. All four objectives were completed and all the requirements were met. Thank you for your attention. I am ready for questions.
+To summarize. We developed Kotlin Remote — a lightweight RPC framework designed for Kotlin Multiplatform shared-codebase projects. It uses context parameters to eliminate the need for service interfaces and make remote calls visible at the type level. All four objectives were completed and all the requirements were met. Thank you for your attention. I am ready for questions.

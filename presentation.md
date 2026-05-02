@@ -76,14 +76,14 @@ Actual supervisor: Ilmir Usmanov
 
 Kotlin is used for **network-heavy** software: microservices, client-server apps, distributed systems.
 
+These projects often use a **shared codebase** — client and server, or multiple microservices, live in the same Kotlin project.
+
 Application code:
 
 * **Business logic** — unique per application, high value
 * **Network code** — repetitive across applications, *boilerplate*
 
-<br>
-
-**Problem:** network part is too big 
+**Problem:** even in a shared codebase, the network part is too big
 
 ---
 
@@ -134,7 +134,7 @@ pizzaShop.orderPizza(Pizza("Pepperoni"))
 
 # Goals and Objectives
 
-**Goal:** Develop an RPC framework for Kotlin Multiplatform that reduces boilerplate compared to existing approaches
+**Goal:** Develop an RPC framework for Kotlin Multiplatform **shared-codebase** projects that reduces boilerplate compared to existing approaches
 
 **Objectives:**
 1. Prototype RPC framework using *context parameters*
@@ -375,7 +375,7 @@ What code must be written **for each new remote function**:
 
 # Limitations
 
-- **Optimized for shared codebase** — works better when client and server use the same function
+- **Designed for shared codebase** — works best when client and server share the remote function source; separate codebases require duplicating signatures
 - **No cross-language support** — both sides must be Kotlin
 - **Serialization** — remote functions' parameters and return values must be serializable
 - **Coroutine context** — not preserved across remote boundary
