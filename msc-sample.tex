@@ -325,19 +325,19 @@ to that this way.
 \subsection{Remote functions}
 
 Function that can be executed on remote machine (aka remote functions) are the integral part of any 
-remote framework.
+RPC framework.
 
 In order to reason about remote functions two terms should be introduced: client and server.
 In RPC world \term{client} is machine from which remote call is made and \term{server}
-is target machine of this remote call, machine where call is actually executing.
+is target machine of this remote call, machine where call is actually executed.
 
 \subsubsection{Client} \label{client-section}
 
-Now let us take a look at how remote call is done on the client in Kotlin Remote. In order to call
+Let us take a look at how remote call is done on the client in Kotlin Remote. In order to call
 a function on a remote machine it is necessary to pass to this function some information specific
 to remote call, including address of the target machine and a way to serialize function arguments
 and deserialize its result. In existing RPC frameworks this information is provided to the function
-using stub. To better understand what stub is and how provides necessary information for remote
+using stub. To better understand what stub is and how it provides necessary information for remote
 call, let us take a look at the example for Kotlin RPC in the figure \ref{krpc_remote_call}. User
 have to create instance of \kotlini{KtorRpcClient}, which is configured with remote host URL
 and serialization schema. Then using this client user can create service stub
@@ -414,9 +414,9 @@ functions on several target machines. Resolution of these problems are important
 Kotlin is not solely OOP language, it has a lot of attributes of functional and procedure
 languages. So we believe RPC framework for Kotlin will benefit greatly by solving stated problems.
 
-There is less functional alternative to Reader monad that is called \term{implicit parameters}.
+There is an alternative to Reader monad applicable to Kotlin that is called \term{implicit parameters}.
 These are parameters of the function that are resolved from the function invocation context and
-should not be passed to explicitly when function is called in contrast with normal parameters. New
+should not be passed explicitly when function is called in contrast to normal parameters. New
 language feature for Kotlin called \term{context parameters}
 \cite{noauthor_keepproposalskeep-0367-context-parametersmd_nodate} is basically implementation of
 implicit parameters for Kotlin. Using this feature it is possible to develop RPC framework for
@@ -436,9 +436,13 @@ for it in the figure \ref{multiply_client}.
 
 Body of the function is basically undefined, because it is not needed on client. To pass to
 \kotlini{multiply} function a way to communicate with remote machine, we can add context parameter
-to \kotlini{multiply}, like on figure \ref{multiply_client_context}. It is inconvenient to write
-\kotlini{c.client.call(...)} for every remote function. This problem will be addressed later when
-code generation done by the framework will be discussed.
+to \kotlini{multiply}, like on figure \ref{multiply_client_context}. Reader may notice that it is
+inconvenient to write \kotlini{c.client.call(...)} for every remote function. This problem will be
+addressed later in section \ref{remote_functions_code_generation} when code generation done by the
+framework will be discussed. On listing \ref{multiply_client_context} remote client contains all the information needed for remote call, like target address and
+serialization schema. Default implementation for \kotlini{RemoteClient} uses \term{Ktor}
+\cite{noauthor_ktor_nodate} \kotlini{HttpClient}, which is setup by the user. In order to call
+multiply user can write code from figure \ref{multiply_client_context_call}.
 
 \begin{figure}[!h]
   \begin{minted}{kotlin}
@@ -455,11 +459,6 @@ code generation done by the framework will be discussed.
   \end{minted}
   \caption{Multiply function with context}\label{multiply_client_context}
 \end{figure}
-
-Here remote client contains all the information needed for remote call, like target address and
-serialization schema. Default implementation for \kotlini{RemoteClient} uses \term{Ktor}
-\cite{noauthor_ktor_nodate} \kotlini{HttpClient}, which is setup by the user. In order to call
-multiply user can write code from figure \ref{multiply_client_context_call}.
 
 \begin{figure}[!h]
   \begin{minted}{kotlin}
@@ -488,23 +487,22 @@ multiply user can write code from figure \ref{multiply_client_context_call}.
 The setup of \kotlini{HttpClient} is quite standard, the interesting part is
 \kotlini{remoteSerializersModule} function. This function declares serialization schema for remote
 function parameters and result. It returns instance of \kotlini{SerializationModule} from
-\term{kotlinx.serialization} \cite{noauthor_kotlinkotlinxserialization_2026}. This
+\texttt{kotlinx.serialization} \cite{noauthor_kotlinkotlinxserialization_2026}. This
 \kotlini{SerializationModule} has serializers to serialize and deserialize remote function
 parameters and return values. \kotlini{RemoteClient.call} accepts RemoteCall from figure
 \ref{remote_call_and_callable_class}. Field \kotlini{callableName} is the name of the function
-which is called and \kotlini{arguments} is arguments with which this function was called. This
-class has a custom serializer that serializes \kotlini{arguments: Array<Any?>} using
-\kotlini{callableName}. This serializer is created by \kotlini{remoteSerializersModule}. But it is
-not a magic. To implement this custom serializer information about remote function with name
-\kotlini{callableName} is needed. The only way to get this information for Kotlin Multiplatform 
-(\term{KMP}) is by asking user to provide it or gathering it automatically somehow. The problem is this 
-information cannot be gathered in runtime because KMP (unlike Java or Kotlin JVM backend) does not
-support fully fledged reflection. This means that we cannot get function signature in runtime or type 
-by its name, etc. But this is exactly information needed for serialization. For now we will think that
-required information is gathered somehow and stored inside structure called \kotlini{CallableMap}. 
-This is basically a map from fully qualified names of remote function 
-to information about this function which is represented by \kotlini{RemoteCallable} from figure 
-\ref{remote_call_and_callable_class}.
+which is called and \kotlini{arguments} is arguments with which this function is called. This class
+has a custom serializer that serializes \kotlini{arguments: Array<Any?>} using
+\kotlini{callableName}. This serializer is created by \kotlini{remoteSerializersModule}. To
+implement this custom serializer information about remote function with name \kotlini{callableName}
+is needed. The only way to get this information in Kotlin Multiplatform (\term{KMP}) is by asking
+user to provide it or gathering it automatically somehow. The problem is this information cannot be
+gathered at runtime because KMP (unlike Java or Kotlin JVM) does not support fully fledged
+reflection. This means that we cannot get function signature at runtime or type by its name, etc.
+But this is exactly information needed for serialization. For now, we will think that required
+information is gathered somehow and stored inside structure called \kotlini{CallableMap}. This is
+basically a map from fully qualified name of remote function to information about this function
+which is represented by \kotlini{RemoteCallable} from figure \ref{remote_call_and_callable_class}.
 
 The pipeline is the following: \kotlini{remoteSerializersModule} creates serializer for
 \kotlini{RemoteCall} using \kotlini{CallableMap}. This serializer uses \kotlini{CallableMap} and
@@ -695,7 +693,7 @@ change context by calling \kotlini{context(ArithmeticConfigImpl) { ... }}.
   \caption{Hierarchy of clients}\label{sin_example}
 \end{figure}
 
-\subsection{Remote functions code generation}
+\subsection{Remote functions code generation}\label{remote_functions_code_generation}
 
 Some of the actions required from user in order to use remote functions can be delegated to the
 compiler using code generation. Namely, \kotlini{CallableMap} and calls to contexts of remote functions
@@ -867,19 +865,34 @@ to change exceptions. For all other backends exception from remote machine is wr
   \caption{Custom exception registration}\label{custom_exception_registration}
 \end{listing}
 
+\subsection{Architecture}
+
+\begin{figure}[ht]
+  \begin{center}
+    \includegraphics[width=.55\textwidth]{module-graph}
+  \end{center}
+  \caption{Module dependency graph}\label{module_dependency_graph}
+\end{figure}
+
+Now is a good time to take a look at architecture of kotlin-remote framework. At \ref{module_dependency_graph} is shown
+module dependency graph of the framework. Each rectangle is a Gradle module. Before we only described
+\ki{compiler-plugin} and \ki{core-functions} module. But there are two more modules that extend functionality of 
+the mentioned ones. \ki{core-classes} contain support for distributed objects and \ki{core-ktor} provides an 
+implememntation of the transport protocol for Kotlin Remote using Ktor.
+
 \subsection{Ktor integration}
 Kotlin Remote is meant to be transport agnostic. This is done by splitting code into three modules:
 \kotlini{core-functions}, \ki{core-classes}, \ki{core-ktor}. Until now, we almost exclusively have
-been discussing \ki{core-functions} module that contains logic related to remote functions.
-\ki{core-classes} is independent of \ki{core-functions} and will be discussed later. Now we briefly
-discuss \ki{core-ktor} module which contains Kotlin Remote integration with Ktor. Ktor is a mature framework
-that offers lots of functions like auth support, logging etc. Kotlin Remote used together with Ktor
-supports the same functionality Ktor does. For example, authentication can be supported using code from 
-listing \ref{auth_example}. Notice call to \ki{handleRemoteCall} function in \ki{server}. This function
-passes control to \ki{core-ktor} module that deserializes arguments of remote call, invokes remote function,
-serializes and sends result to the client.
+been discussing \ki{core-functions} module that contains logic related to remote functions. Now let us
+briefly discuss \ki{core-ktor} module which contains Kotlin Remote integration with Ktor. Ktor is a
+mature framework that offers lots of functions like auth support, logging etc. Kotlin Remote used
+together with Ktor supports the same functionality Ktor does. For example, authentication can be
+supported using code from listing \ref{auth_example}. Notice call to \ki{handleRemoteCall} function
+in \ki{server}. This function passes control to \ki{core-ktor} module that deserializes arguments
+of remote call, invokes remote function, serializes and sends result to the client. Inside
+\ki{/call} route \ki{handleRemoteCall} is called implicitly.
 
- \begin{listing}[!h]
+\begin{listing}[!h]
   \begin{minted}{kotlin}
   val server = embeddedServer(Netty, port = 8080) {
     install(Authentication) {
@@ -922,34 +935,100 @@ approach. Firstly, \ki{this} should be serializable, and serialization logic sho
 the user. Secondly, methods that mutate \ki{this} will mutate deserialized copy of \ki{this}, which
 basically means that they will have no effect on the original \ki{this}. 
 
-All these problems are not new and were addressed in lots of existing RMI framework, like Java RMI. 
+All these problems are not new and were addressed in lots of existing RMI frameworks, like Java RMI. 
 In Kotlin Remote we decided to use well-known approach to solve these problems: stubs. Classes in 
 Kotlin Remote can be marked with \ki{@RemoteSerializable} annotation. For each remote serializable class
-custom \term{kotlinx.serialization} serializer is generated. 
+custom \texttt{kotlinx.serialization} serializer is generated. 
 
 This custom serializer serializes remote class as stub. Stub is a subclass of remote class that 
-is generated for every remote class. Stub only has ID and URL of the machine it was created on. During
-serialization original class is added to the special map called \ki{RemoteInstancesPool}. 
-Keys in this pool are stub IDs and values are original classes.
+is generated for every remote class. Stub only has two fields: ID and URL of the machine it was created on. 
+During serialization of remote class it is added to the special map called \ki{RemoteInstancesPool}. 
+Keys in this pool are stub IDs and values are original classes. 
 
 Stub is deserialized either as original class in case it is deserialized on the machine it was 
-serialized on, or as just stub. To understand whether stub was serialized on a current machine, URL
-of the current machine is compared with URL from the stub.
+serialized on and \ki{RemoteInstancesPool} contains it, or as just stub. To understand whether stub 
+was serialized on a certain machine, URL of this machine is compared with URL from the stub.
 
-This way "remote references" are supported by Kotlin Remote without altering logic related to remote function.
-Only serialization functionality is changed. Because of that logic related to remote classes lives
-in a separate Gradle module named \texttt{core-classes} which neither depends nor is dependent on 
-\texttt{core-functions} module described earlier.   
+This URL is only used for this disambiguation of the nodes and garbage collection 
+(more about it later in \ref{garbade_collection_section}). This URL is not used to make remote calls at all,
+address of the target machine is still received from context parameter of remote functions. URL is specified
+on the server when application is configured. It means that user should know address of the machine 
+the server is running on.
 
+Basically stubs are "remote references" that are supported by Kotlin Remote without altering logic
+related to remote function. Only serialization functionality is changed. Because of that logic
+related to remote classes lives in a separate Gradle module named \texttt{core-classes} which
+neither depends nor is dependent on \texttt{core-functions} module described earlier. It is worth
+noticing that stubs are serialized as is, this allows to pass remote references from one machine to
+another even if reference is created on a third machine.
 
-\subsection{Garbage collection}
+\subsubsection{Remote classes code generation}
 
-For now there is no way to remove remote classes from \ki{RemoteInstancesPool}. This is a serious resource
-leak. To resolve this issue leasing is used. Each time stub is deserialized as stub current machine 
-begins to send lease requests to machine where original class of the stub is stored. When machine with original
-class does not get lease requests for a long time it removes class from \ki{RemoteInstancesPool} and
-then it is garbage collected. Machine possessing stub stops sending lease requests when stub is garbage collected
-on it. To implement that weak references are used.
+It was said that for each \ki{@RemoteSerializable} class a stub subclass is generated. This
+subclass is generated inside original class like on listing \ref{remote_class_stub}.
+\ki{RemoteClassStub} extends \ki{Calculator} and implements interface \ki{Stub}. \ki{Stub}
+interface can be used by user to check whether a certain instance of \ki{Calculator} a stub or not.
+Notice how \ki{RemoteClassStub} invokes \ki{Calculator}'s default constructor even though
+\ki{Calculator} doesn't have one. This is achieved by generating default constructor for
+\ki{Calculator} in Kotlin Remote backend compiler plugin. \ki{Calculator} is also made open
+implicitly by the same plugin on backend. Because these changes are made on backend,
+\ki{Calculator} class cannot be extended, and its default constructor cannot be called from user
+defined Kotlin code. Only code generated by compiler plugin can do that.
+
+\begin{listing}[!h]
+  \begin{minted}{kotlin}
+  @RemoteSerializable
+  class Calculator(private var init: Int) {
+    @Remote
+    context(_: RemoteContext<RemoteConfig>)
+    suspend fun multiply(x: Int): Int {
+        init *= x
+        return init
+    }
+    class RemoteClassStub(
+        override val id: Long,
+        override val url: String
+    ) : Calculator(), Stub
+  }
+  \end{minted}
+  \caption{Remote class stub}\label{remote_class_stub}
+\end{listing}
+
+Unfortunately, without reflection (and we cannot use it because of KMP) it is unclear how to deserialize
+\ki{Calculator} as its \ki{RemoteClassStub} because every remote class has its own \ki{RemoteClassStub} type.
+To solve this issue another Kotlin Remote intrinsic is used, called \ki{genRemoteClassList}.
+Take a look at listing \ref{gen_remote_class_list}. List of \ki{RemoteClassDescriptor} is used to generate
+serializers and deserializers for remote classes using contextual serialization from \texttt{kotlinx.serialization}.
+
+\begin{listing}[!h]
+  \begin{minted}{kotlin}
+  data class RemoteClassDescriptor<T : Any>(
+    val clazz: KClass<T>,
+    val serialName: String,
+    val stubFabric: (Long, String) -> T,
+  )
+
+  fun genRemoteClassList(): List<RemoteClassDescriptor<Any>> = RemoteIntrinsic
+  \end{minted}
+  \caption{genRemoteClassList intrinsic}\label{gen_remote_class_list}
+\end{listing}
+
+\subsection{Garbage collection}\label{garbade_collection_section}
+
+Now there is no way to remove remote classes from \ki{RemoteInstancesPool}. This is a serious
+resource leak. To resolve this issue several techniques can be used, including reference counting
+or full-blown distributed garbage collection. But we decided to opt for leasing approach, because
+it is easy, lightweight and durable. Each time stub is deserialized on a machine this machine
+begins sending lease requests to machine where original class of the stub is stored. To determine
+address of the machine where original class is stored \ki{url} field of the stub is used. When
+machine with original class does not get lease requests for specific class for a long time it
+removes this class from \ki{RemoteInstancesPool}. Machine owning a stub stops sending lease
+requests when this stub is garbage collected on the owner machine. To implement that weak
+references are used. These are references that are not taken into account to mark reachable objects
+during garbage collection. This is basically the whole algorithm. The beauty of this approach is
+that when client owning a stub crashes, server is able to remove original class from its pool
+gracefully. Garbage collection is enabled by default, but can be disabled and fine-tuned when needed. 
+Ktor integration provides transport for leases, user can provide its own ways to deliver leases.
 
 \section{Evaluation of the Kotlin Remote}
 
