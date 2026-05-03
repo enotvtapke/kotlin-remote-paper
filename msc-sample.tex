@@ -154,21 +154,21 @@ highlight the importance of your project.
 
 (target size: 15-20 lines)
 
-A large subset of modern software uses network interactions extensively. One of the languages that
-is actively used to develop such software is Kotlin. However, standard for Kotlin technologies like
-REST for organizing network interactions are overly explicit and require writing a lot of
-additional code by applying specific patterns. Such code is usually called \term{boilerplate code}.
+A large subset of modern software for Kotlin and Kotlin Multiplatform (KMP) uses network interactions
+extensively. However, standard technologies for organizing network interactions in Kotlin like REST
+or \term{Remote Method Invocation} (RMI) require writing a lot of additional code that
+is usually repetitive across lots of applications. Such code is called \term{boilerplate code}.
 
-In this thesis, an alternative mechanism for organizing network interactions in Kotlin is
-proposed. This mechanism uses approach less common for Kotlin, called Remote Procedure Call (RPC).
-This approach allows the invocation of Kotlin function on a remote machine, provided the function
-is annotated in a special way. Such annotated functions are called \term{remote functions}.
+In this thesis we developed a new framework for organizing network interactions in Kotlin and KMP. 
+We called this new framework \term{Kotlin Remote}. Kotlin Remote is based on ideas of 
+\term{Remote Procedure Calls} (RPC), generalized version of RMI, and uses implicit parameters to 
+make functions callable on remote machines via network. 
 
-The novelty of the mechanism proposed in this work lies in the usage of implicit parameters: information
-required from the call-site context. In contrast with traditional RPC, proposed approach uses
-context in which remote function is invoked to determine on what machine function should be
-executed. This leads to more implicit organization of network interactions and as a result greatly
-reduces boilerplate code required for network heavy applications.
+We believe that approach we took in Kotlin Remote leads to the great reduction of boilerplate 
+and at the same time makes remote calls explicit for the developer. Furthermore, Kotlin Remote
+works especially well when server and client share one codebase, which is especially important for 
+KMP environment.
+
 
 \newpage
 \tableofcontents
@@ -247,17 +247,21 @@ be explained here.
 
 Proposed approach is a specific version of RPC, because of that it makes sense to only compare it
 to other RPC approaches that are used in Kotlin. The most popular ones are gRPC and new Kotlin RPC.
-We solve problem that RPC frameworks require to write boilerplate code, because they require to
-declare services. Only methods of these services can be executed remotely, but methods of normal
+Unfortunately, these frameworks make developer writing a substantial amount of boilerplate code, because 
+they require to declare services. Only methods of these services can be executed remotely, but methods of normal
 classes and top level functions cannot. Basically all the existing RPC frameworks for Kotlin use 
 Remote Method Invocation (RMI), the object-oriented programming analog of RPC, even though Kotlin is
-not entirely OOP language.
+not entirely OOP language. The main aim of developed approach is reduction of boilerplate code required 
+to organize network interaction in comparison with existing RPC frameworks in Kotlin.
 
-Apart from looking at existing RPC frameworks, this section also takes a look on related ideas
-from functional programming. Namely on \term{coeffects}, that are foundational concept on which
-Kotlin Remote is built. Coeffects are tightly related to \term{implicit parameters}, which Kotlin
-recently got an implementation of in form of experimental \term{context parameters} feature. Both
-of these ideas will be discussed below.
+Apart from RPC frameworks, REST architectural style is also widely used in Kotlin to organize
+network interactions. Therefore, it is useful to take a brief look at REST as well. Apart from
+looking at existing frameworks, this section also takes a look on related ideas from functional
+programming. Namely on \term{coeffects}, that are foundational concept on which Kotlin Remote is
+built. Coeffects are tightly related to \term{implicit parameters}, which Kotlin recently got an
+implementation of in form of experimental \term{context parameters} feature. Coeffects also have
+close ties to \term{multi-tier programming languages}, in which separation between different
+machines is encoded in the type system. All of these ideas will be discussed below.
 
 \subsection{RPC}
 
@@ -295,12 +299,36 @@ communication between \term{distributed objects} \cite{wollrath_distributed_1996
 \makedefinition[remote method invocation]{RMI}{communication protocol which allows an application
 executing methods of distributed objects on a remote machine}
 
-Most well-known classic implementations of RMI are CORBA, Java RMI \cite{noauthor_java_nodate} and
+Most classic implementations of RMI are CORBA, Java RMI \cite{noauthor_java_nodate} and
 COM/DCOM. They share lots of architectural similarities and follow the same general idea of providing
 distributed objects on a type level \cite{plasil_architectural_1998}. However, classic forms of RMI in
 their fullness are not popular nowadays. These implementations are not used in a modern production
 code. Modern approaches try to be more lightweight and explicit, they do not try to hide network
-interactions completely from the developer \cite{ryan_grpc_2015}.
+interactions completely from the developer \cite{ryan_grpc_2015}. Developed framework follows this 
+trend.
+
+\subsection{REST}
+
+REST (Representational State Transfer) is an architectural style for designing networked
+applications introduced by Roy Fielding in his PhD thesis \cite{fielding_architectural_2000}. It
+is built on top of HTTP and uses HTTP methods (GET, POST, PUT, DELETE, etc.) to operate on
+resources identified by URLs. REST does not specify any particular serialization format, but JSON
+is the most common one in practice. REST is the most popular way of organizing network
+interactions in Kotlin today, and is usually implemented using Ktor framework
+\cite{noauthor_ktor_nodate} which will be discussed later in section \ref{ktor-section}.
+
+In contrast with RPC, REST is centered around resources and not around procedures. From
+developer's point of view this means that for each new endpoint user has to design URL of the
+resource, choose HTTP method that should be used to access it, write routing code on the server,
+write serialization and deserialization logic for request and response bodies and make HTTP
+request from the client. All of this can be quite tedious especially when client and server share
+the same codebase, because in this case lots of information that is encoded in URL and HTTP method
+is essentially duplicated.
+
+REST gives developer a lot of fine-grained control over network interactions. This is beneficial
+when network communication is exposed to the outside world (for example, public API of a service).
+However, when network is used for internal communication between microservices that share the
+same codebase, this fine-grained control is rarely needed and boilerplate cost dominates.
 
 \subsection{gRPC}
 
@@ -367,6 +395,20 @@ liveness analysis, implicit parameters and dataflow caching under one umbrella. 
 foundation of coeffects relies on indexed comonads, but in practice coeffects can be expressed
 using more familiar language constructs.
 
+It is useful to look closer at duality between effects and coeffects. Effects in their
+modern form are usually expressed via \term{algebraic effects} \cite{plotkin_handlers_2009} and
+\term{effect handlers}. Algebraic effects describe operations that computation can perform on its
+environment (like throwing an exception, reading from a file or sending a network request) and
+effect handlers describe how exactly these operations should be interpreted. Languages like Koka
+\cite{leijen_koka_nodate} put algebraic effects in the heart of their type system. The duality is
+the following: effects describe what computation does to the environment and how this is
+interpreted, while coeffects describe what computation requires from the environment and how this
+requirement is satisfied. In the context of this thesis remote call can be seen both as an effect
+(it performs network IO) and as a coeffect (it requires a way to reach remote machine). In
+Kotlin Remote we focus on the coeffect side of remote calls, because it allows us to express
+remote calls as a normal Kotlin functions with implicit context parameter, without introducing
+any special effect system.
+
 The most well-known practical encodings of coeffects in functional languages are \term{implicit
 parameters} \cite{lewis_implicit_2000} and \term{Reader monad}. Implicit parameters are parameters
 of the function that are not passed explicitly at the call site, but are resolved automatically
@@ -374,7 +416,7 @@ from the surrounding context. Reader monad threads read-only environment through
 way that does not require explicitly passing it to every function. From the user point of view both
 mechanisms allow expressing context-dependence of a computation in a type-checked way.
 
-Reader monad is famously used by RPC framework called Servant \cite{noauthor_servant_nodate} for
+Reader monad is used by RPC framework called Servant \cite{noauthor_servant_nodate} for
 Haskell programming language to implement remote calls. In Servant remote functions return value
 wrapped into \mintinline{haskell}{ClientM} which is basically Reader monad providing remote
 configuration. Concrete server is provided to remote functions by
@@ -390,11 +432,33 @@ The role of Reader monad or Haskell-style implicit parameters in Kotlin Remote i
 it states that to execute this function caller has to provide a way to reach remote machine. Such
 coeffect is visible in the function signature and, just like in Servant, can be satisfied either by
 configured remote context (and then remote call is performed) or by local context (and then function
-body is executed locally on the server). It is worth noticing that other languages also explored
-similar ideas. For example, Opa \cite{noauthor_opa_nodate} is a language designed for web
-applications in which type system can express where particular piece of code is executed (client or
-server). This is essentially the same coeffect we use in Kotlin Remote, but baked directly into the
-language.
+body is executed locally on the server).
+
+\subsection{Multi-tier programming languages}
+
+Idea of distinguishing on a type level where particular piece of code is executed (client or
+server) is not new and was explored by several programming languages designed specifically for
+web applications. Such languages are often called \term{multi-tier} or \term{tierless}, because
+they allow writing client and server code in the same language and same codebase, while still
+keeping clear separation between the two on a type level. Multi-tier languages are tightly related
+to coeffects discussed in the previous section: location of code execution is essentially a
+coeffect, because computation requires from environment a particular machine to be executed on.
+
+Examples of such languages include Links \cite{cooper_links_2007}, Ur/Web
+\cite{chlipala_urweb_2015} and Opa \cite{noauthor_opa_nodate}. In Links, for example, function
+annotation can specify whether function should be executed on a client or on a server. Compiler
+then checks that all the calls between client and server functions are done correctly and
+generates code that handles network communication automatically. Ur/Web takes similar approach but
+additionally provides type-safe SQL queries and HTML templates. Opa goes even further by combining
+client, server and database code in a single language with unified type system.
+
+Approach taken in Kotlin Remote can be seen as a library-level approximation of what multi-tier
+languages do at the language level. Instead of introducing new language with dedicated type system
+for tiering, we use existing language feature (context parameters) to encode location of code
+execution on a type level. Of course, this approach is less powerful than full multi-tier language,
+because it is limited by what can be expressed using context parameters. But it has its own
+advantages: it can be used in existing Kotlin projects without rewriting them in a new language
+and it integrates naturally with the rest of Kotlin ecosystem.
 
 \subsection{Kotlin Ecosystem}
 In the framework developed as part of this thesis many technologies from Kotlin Ecosystem are used.
@@ -411,13 +475,32 @@ coloring} problem \cite{noauthor_what_nodate}\cite{noauthor_keepnotescode-colori
 because suspend functions and ordinary functions are basically two distinct kinds (or
 \term{colors}) of functions in Kotlin. For our purposes function coloring is actually beneficial,
 because remote calls are inherently asynchronous, so it is natural for remote functions in Kotlin
-Remote to be suspend.
+Remote to be suspend. Internally coroutines are implemented using continuations. Suspend functions are transformed by the
+Kotlin compiler into state machines that take continuation as an additional parameter.
 
-Internally coroutines are implemented using continuations. Suspend functions are transformed by the
-Kotlin compiler into state machines that take continuation as an additional parameter. Currently
-Kotlin coroutines support only single-shot continuations, although there is an ongoing discussion
-about adding multi-shot continuations
-\cite{noauthor_keepnotes0004-multishot-continuationsmd_nodate}.
+\subsubsection{Kotlin Multiplatform} \label{kotlin-multiplatform-section}
+
+Kotlin Multiplatform (KMP) \cite{noauthor_kotlin_multiplatform_nodate} is a technology that allows
+writing code that can be compiled to several platforms, including JVM, JavaScript, Native (iOS,
+Linux, macOS, Windows) and WebAssembly. Kotlin code that targets KMP is split into several
+so-called \term{source sets}. There is a common source set with code shared between all the
+platforms and several platform-specific source sets with code that is specific to particular
+platform.
+
+KMP introduces \kotlini{expect}/\kotlini{actual} mechanism for declaring code that has different
+implementation for different platforms. In common source set developer declares function or class
+with \kotlini{expect} keyword, this declaration has no body. In each platform-specific source set
+developer provides actual implementation of this declaration using \kotlini{actual} keyword. When
+common source set is compiled for particular platform, \kotlini{expect} declaration is replaced
+with corresponding \kotlini{actual} one.
+
+One important limitation of KMP is that it does not support fully fledged reflection in common
+source set. JVM target supports rich reflection API, but other targets either do not support
+reflection at all or support only very limited subset of it. This means that libraries that target
+KMP can not rely on reflection to gather information about types and functions at runtime. Instead
+such information has to be gathered at compile time, usually using compiler plugins. Kotlin Remote
+targets KMP and faces this limitation, which shaped a lot of architectural decisions described
+later in section \ref{remote_functions_code_generation}.
 
 \subsubsection{kotlinx.serialization}
 
@@ -429,7 +512,7 @@ without reflection and as a consequence works in all Kotlin Multiplatform target
 uses kotlinx.serialization to serialize and deserialize remote function arguments and return
 values.
 
-\subsubsection{Ktor}
+\subsubsection{Ktor} \label{ktor-section}
 
 Ktor \cite{noauthor_ktor_nodate} is a framework for building asynchronous servers and clients in
 Kotlin. It is built on top of Kotlin Coroutines and is a part of Kotlin ecosystem maintained by
