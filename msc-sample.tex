@@ -1286,20 +1286,32 @@ Ktor integration provides transport for leases, user can provide its own ways to
 
 \section{Evaluation of the Kotlin Remote}
 
-To evaluate the framework three example applications were developed using Kotlin Remote and then
-rewritten using two alternative frameworks: gRPC and Kotlin RPC. All three implementations of each
-application are functionally equivalent, the only difference is in the way network interactions are
-organized. As we are interested in network code, we will be focusing on it during comparison.
-Business logic of applications (database access, command line user interface, etc.) is roughly the
-same in all three implementations. Source code of all the applications is available at
-\texttt{integration-tests/} folder of Kotlin Remote repository.
+To evaluate the framework four example applications were developed using Kotlin Remote and
+rewritten using Kotlin RPC. All implementations are functionally equivalent, the only difference
+is in the way network interactions are organized. As we are interested in network code, we will
+be focusing on it during comparison. Business logic of applications (database access, command
+line user interface, etc.) is roughly the same in all implementations. Source code is available
+at \texttt{integration-tests/} folder of Kotlin Remote repository.
 
-Three example applications were chosen so that they cover different scenarios in which RPC framework
-can be used. The first one is a simple Todo application with a small fixed set of CRUD operations.
-The second one is a chat with rooms in which users send messages to each other through a central
-server. The third one is a small bank application which is split into three microservices that talk
-to each other. These applications differ in size and complexity, and stress different aspects of
-RPC frameworks.
+We compare Kotlin Remote only with Kotlin RPC. The reason is that for Kotlin only and transport
+agnostic setting, which is the setting Kotlin Remote targets, gRPC and Kotlin RPC are very close
+in features: both rely on service interface declaration, both generate stubs and server bases at
+compile time, both require to implement the service interface. But Kotlin RPC is more concise
+and more idiomatic for Kotlin. It uses Kotlin types directly with no separate IDL, serialization
+is provided by \texttt{kotlinx.serialization}, remote functions are suspend functions. gRPC in
+comparison has separate proto IDL, generated builder-based types that do not look like normal
+Kotlin code, and per remote function overhead that includes proto messages and proto-to-domain
+mapping. We did prototype gRPC versions for the smaller applications and the per function
+overhead in gRPC was always the largest of the three frameworks. So we drop gRPC from the main
+comparison and focus on the closer alternative.
+
+Four applications were chosen so that they cover different scenarios. \term{Todo} is a simple
+CRUD application with four operations and baselines per application setup cost. \term{Rooms
+chat} is a chat with rooms that uses remote classes and peer-to-peer architecture. \term{Social
+platform} is a backend split into ten microservices with thirty-six remote operations to stress
+per microservice overhead and orchestration. \term{CMS} is a content management system with
+hierarchical context tiers and Ktor authentication, designed to exercise the hierarchical
+contexts feature.
 
 \subsection{Example applications}
 
@@ -1389,71 +1401,175 @@ to express using more traditional RPC frameworks, because they assume strict cli
 relationship. In Kotlin Remote any participant can be both client and server because remote
 configuration is just a value that can be passed around.
 
-\subsubsection{Bank}
+\subsubsection{Social platform} \label{social_app_section}
 
-The third application is the largest. It is a small banking system split into three microservices:
-\kotlini{UserService}, \kotlini{AccountService} and \kotlini{PaymentService}. User service handles
-registration and login, account service handles accounts and transfers, payment service records
-payments and uses account service for transfers. Each microservice runs on its own port. Client is
-a simple command line tool that talks to all three services.
+A small social network backend split into eight microservices: \kotlini{users}, \kotlini{posts},
+\kotlini{comments}, \kotlini{likes}, \kotlini{follows}, \kotlini{feed},
+\kotlini{notifications} and \kotlini{search}. On top of these two Backend-for-Frontend
+microservices are added: \kotlini{webBff} returns rich aggregated objects for a desktop browser,
+\kotlini{mobileBff} returns slim paginated objects for a mobile application. Total is ten
+microservices and thirty-six remote operations. The first six microservices keep their own state
+in memory, the other four are pure orchestrators that aggregate data from other microservices.
+The application was deliberately designed to stress per-microservice overhead and orchestration.
+Dependencies of every microservice are wired with Koin \cite{noauthor_koin_nodate}, one Koin
+module per microservice.
 
-The bank application illustrates how Kotlin Remote handles service-to-service calls. Listing
-\ref{bank_payment_service} shows \kotlini{PaymentServiceImpl.makePayment} function. Notice how
-context is switched from \kotlini{PaymentServiceConfig} to \kotlini{AccountServiceConfig} when call
-to \kotlini{accountService.transfer} is made. This is enough to redirect the call to the account
-microservice.
+All ten services use no remote classes. Every remote operation is a top level function annotated
+with \kotlini{@Remote}, and all thirty-six of them live in a single \kotlini{API.kt} file.
+Listing \ref{social_get_feed} shows the \ki{getFeed} function from the \kotlini{feed}
+microservice, which uses five other microservices to assemble a feed.
 
 \begin{listing}[!h]
   \begin{minted}{kotlin}
-  @RemoteSerializable
-  class PaymentServiceImpl(
-      private val accountService: AccountService,
-      private val paymentRepository: PaymentRepository,
-  ): PaymentService {
-      @Remote
-      context(_: RemoteContext<PaymentServiceConfig>)
-      override suspend fun makePayment(payment: MakePaymentDto): Payment {
-          context(AccountServiceConfig.asContext()) {
-              accountService.transfer(payment)
-          }
-          return paymentRepository.createPayment(payment)
+  @Remote context(_: RemoteContext<FeedServiceConfig>)
+  suspend fun getFeed(userId: Long): List<FeedItem> {
+      val followees = context(FollowServiceConfig.asContext()) { getFollowing(userId) }
+      val posts = followees.flatMap {
+          context(PostServiceConfig.asContext()) { listUserPosts(it) }
+      }
+      return posts.map { p ->
+          val author = context(UserServiceConfig.asContext()) { getUser(p.authorId) }
+          val likes = context(LikeServiceConfig.asContext()) { getPostLikes(p.id) }.size
+          val comments = context(CommentServiceConfig.asContext()) { getPostComments(p.id) }.size
+          FeedItem(p, author, likes, comments)
       }
   }
   \end{minted}
-  \caption{Service-to-service call in the bank application}\label{bank_payment_service}
+  \caption{Service-to-service orchestration in social platform}\label{social_get_feed}
 \end{listing}
 
-It is worth noticing that \kotlini{PaymentServiceImpl} itself is a remote class. Reference to
-\kotlini{accountService} that is held inside \kotlini{PaymentServiceImpl} is also remote. In
-Kotlin Remote remote references compose naturally, calls between services do not require any
-additional plumbing besides switching the context to the target microservice configuration.
+To call a function from another microservice it is enough to wrap the call into
+\kotlini{context(XxxServiceConfig.asContext()) { ... }} block. There are no service stubs to
+inject, no constructor parameters to thread through and no startup ordering between
+microservices. BFF endpoints have the same shape as \kotlini{getFeed}: switch context to each
+downstream microservice that is needed and assemble the response. In Kotlin RPC version of the
+application \kotlini{getFeed} has to be a method of \kotlini{FeedService} \kotlini{@Rpc}
+interface, implemented by \kotlini{FeedServiceImpl} class that takes five service stubs as
+constructor parameters (one per downstream microservice). The launcher of the \kotlini{feed}
+microservice has to create those five stubs explicitly before starting the server. Each BFF
+microservice in Kotlin RPC pays the same cost: \kotlini{@Rpc} interface, implementation class
+with four or five stub constructor parameters, launcher that builds the stubs in the right
+order.
 
-\subsection{Comparison to alternatives}
+Client side benefits from context parameters as well. Listing \ref{social_client} shows the
+test function that exercises the platform. It declares context parameters for all ten services
+in a single \kotlini{context(...)} block on its signature. Inside the function every remote
+call is a plain unqualified function call, no per-call context block and no service stub. In
+Kotlin RPC version the same function takes ten service stubs as parameters and every call goes
+through the corresponding stub.
 
-For each example application two alternative implementations were written, one using gRPC and one
-using Kotlin RPC. Comparison was done on the size of network code and on the amount of work
-required to add a new remote function or new microservice. We also looked at how each framework
-handles service-to-service calls and at code style of the resulting applications.
+\begin{listing}[!h]
+  \begin{minted}{kotlin}
+  context(
+      _: RemoteContext<UserServiceConfig>, _: RemoteContext<PostServiceConfig>,
+      _: RemoteContext<FollowServiceConfig>, _: RemoteContext<LikeServiceConfig>,
+      _: RemoteContext<CommentServiceConfig>, _: RemoteContext<NotificationServiceConfig>,
+      _: RemoteContext<FeedServiceConfig>, _: RemoteContext<SearchServiceConfig>,
+      _: RemoteContext<WebBffConfig>, _: RemoteContext<MobileBffConfig>
+  )
+  suspend fun testClient() {
+      val alice = register("alice", "pw", "Alice")
+      val p1 = createPost(CreatePostDto(alice.id, "Hello #world"))
+      likePost(p1.id, alice.id)
+      val feed = getFeed(alice.id)
+      val webHome = getWebHomePage(alice.id)
+      val mobileHome = getMobileHomePage(alice.id, 0, 10)
+  }
+  \end{minted}
+  \caption{Multi-context client function in social platform}\label{social_client}
+\end{listing}
 
-\subsubsection{Lines of code}
+\subsubsection{CMS} \label{cms_app_section}
 
-Table \ref{loc_table} shows the size of network code in lines for all three applications. By
-network code we mean code that exists only because the application is distributed: remote
-function declarations and decorations, service interfaces, IDL files, client and server setup,
-type conversions between domain types and IDL types. Pure business logic (repositories, command
-line interface, desktop UI, database schema) and pure data classes are excluded. Numbers should
-be taken as rough approximations because in Kotlin Remote network annotations are interleaved
-with business logic and exact split is somewhat subjective.
+A small content management system designed specifically to exercise hierarchical contexts, the
+feature mentioned in section \ref{client-section} but not otherwise tested in the previous
+applications. The CMS exposes fourteen remote operations split into four tiers of capabilities:
+\kotlini{Guest} (anonymous read access), \kotlini{Author} (create and edit own articles and
+comments), \kotlini{Moderator} (delete any comment, pin article) and \kotlini{Admin} (promote
+users, view statistics, purge user). In Kotlin Remote the four tiers are expressed as a chain
+of subtyped configs:
+
+\begin{listing}[!h]
+  \begin{minted}{kotlin}
+  interface GuestConfig : RemoteConfig
+  interface AuthorConfig : GuestConfig
+  interface ModeratorConfig : AuthorConfig
+  interface AdminConfig : ModeratorConfig
+  \end{minted}
+  \caption{Four-tier context hierarchy in CMS}\label{cms_hierarchy}
+\end{listing}
+
+Each remote function declares the minimum tier it requires as its context parameter. Because
+of covariance and subtyping any function defined with a lower-tier requirement can be called
+from a higher-tier context. So a moderator session naturally calls guest-tier functions, and
+an admin session naturally calls functions of all three lower tiers. This propagation is in
+the type system, no extra wiring is needed at the call site.
+
+Runtime protection of tiers is done with Ktor basic authentication. Server installs four basic
+auth providers, one per tier, each accepting credentials only if the authenticated user has at
+least the required role. Each tier is exposed under its own protected HTTP route
+(\kotlini{/call/guest}, \kotlini{/call/author}, \kotlini{/call/moderator},
+\kotlini{/call/admin}). Each user session class points at the route matching its role and uses
+the user's credentials.
+
+Hierarchical contexts show their value in cross-tier internal composition. Listing
+\ref{cms_purge_user} shows the admin-tier \kotlini{purgeUser} function which transitively calls
+moderator-tier and guest-tier functions to remove all articles and comments of a banned user.
+
+\begin{listing}[!h]
+  \begin{minted}{kotlin}
+  @Remote context(_: RemoteContext<ModeratorConfig>)
+  suspend fun removeArticleAndComments(id: Long) {
+      val comments = getComments(id)                        // requires GuestConfig
+      comments.forEach { deleteAnyComment(it.id) }          // requires ModeratorConfig
+      dep<ArticleRepository>().deleteAny(id)
+  }
+
+  @Remote context(_: RemoteContext<AdminConfig>)
+  suspend fun purgeUser(login: String): Int {
+      val articles = dep<ArticleRepository>().byAuthor(login)
+      articles.forEach { removeArticleAndComments(it.id) }  // requires ModeratorConfig
+      val droppedComments = dep<CommentRepository>().deleteByAuthor(login)
+      promoteUser(login, Role.GUEST)                        // requires AdminConfig
+      return articles.size + droppedComments
+  }
+  \end{minted}
+  \caption{Cross-tier internal composition in CMS}\label{cms_purge_user}
+\end{listing}
+
+All inner calls in \kotlini{purgeUser} are remote functions of lower tiers, but on the server
+they execute locally with no network round trip. When \kotlini{purgeUser} runs on the server
+the context provided by the framework is \kotlini{LocalContext}, which is a subtype of
+\kotlini{RemoteContext<X>} for any \kotlini{X}, so the inner calls dispatch their local bodies.
+Kotlin RPC does not support hierarchy between \kotlini{@Rpc} interfaces, so the equivalent
+project models the four tiers as four independent \kotlini{@Rpc} interfaces with four
+implementation classes and four registered routes. Two consequences follow. First, the client
+has to obtain a separate stub for every tier it wants to call: a moderator client that needs to
+call a guest-tier function needs both a moderator stub and a guest stub. Second, cross-tier
+internal calls on the server cannot pass through the service abstraction without paying for a
+network round trip, so the Kotlin RPC version goes directly to the repositories from within
+the moderator and admin implementations, with an explanatory comment. This works but it
+bypasses the service layer.
+
+\subsection{Comparison to Kotlin RPC}
+
+Table \ref{loc_table} shows the size of network code in lines for each application. By network
+code we mean code that exists only because the application is distributed: remote function
+declarations and decorations, service interfaces, client and server setup. Pure business logic
+(repositories, command line interface, desktop UI) and pure data classes are excluded. Numbers
+should be taken as rough approximations because in Kotlin Remote network annotations are
+interleaved with business logic and the exact split is somewhat subjective.
 
 \begin{table}[!h]
   \begin{center}
     \begin{tabular}{lrrr}
       \toprule
-      Application & Kotlin Remote & gRPC & Kotlin RPC \\
+      Application & Kotlin Remote & Kotlin RPC & Per-op (KR / krpc) \\
       \midrule
-      Todo (4 remote functions) & 164 & 110 & 86 \\
-      Rooms chat$^{\dagger}$ & ${\sim}165$ & ${\sim}150$ & ${\sim}120$ \\
-      Bank (3 microservices) & ${\sim}280$ & ${\sim}390$ & ${\sim}330$ \\
+      Todo (4 ops) & 164 & 86 & 41 / 22 \\
+      Rooms chat$^{\dagger}$ & ${\sim}165$ & ${\sim}120$ & --- \\
+      Social platform (10 microservices, 36 ops) & 545 & 864 & 15 / 24 \\
+      CMS (4 tiers, 14 ops) & 336 & 341 & 24 / 24 \\
       \bottomrule
     \end{tabular}
     \caption{Lines of network code per application. $^{\dagger}$Rooms chat numbers are not
@@ -1461,202 +1577,140 @@ with business logic and exact split is somewhat subjective.
   \end{center}
 \end{table}
 
-Numbers are informative. For the smallest application (Todo) Kotlin Remote produces noticeably
-more network code than the alternatives. The reason is that Kotlin Remote requires per application
-setup of \kotlini{RemoteClient} and \kotlini{RemoteServer} which is around 100 lines for any
-application regardless of its size. Kotlin RPC and gRPC have leaner per application setup, but
-require to write some code per remote function (interface declaration, service implementation
-and in case of gRPC also IDL file and proto-to-domain mapping).
+The table tells three different stories at three different scales. For the smallest application
+(Todo) Kotlin Remote produces noticeably more network code than Kotlin RPC. The reason is per
+application setup of \kotlini{RemoteClient} and \kotlini{RemoteServer} which is around 100 lines
+for any application regardless of its size. Kotlin RPC has a leaner per application setup. For
+small applications with few operations this setup cost dominates.
 
-For larger applications situation changes. In the bank application Kotlin Remote produces the
-smallest network code, although the gap with Kotlin RPC is not huge. Per microservice overhead
-in Kotlin Remote is small: a single \kotlini{RemoteConfig} object of seven lines per microservice
-plus a launcher of around 15 lines. The shared server setup code in \kotlini{RemoteServer.kt} is
-written once and used by all three microservices. gRPC pays a high price per microservice because
-of separate proto files and proto-to-domain conversion code. Kotlin RPC sits in between: it does
-not need IDL but still requires service interface and implementation class per microservice.
+For social platform with ten microservices and thirty-six operations the situation reverses.
+Kotlin Remote needs 545 lines, Kotlin RPC needs 864. Per operation that is 15 versus 24 lines.
+The per application setup cost in Kotlin Remote is the same as for Todo, but it is now
+amortized over many operations. Kotlin RPC on the other hand pays per microservice cost in
+three places: \kotlini{@Rpc} interface declaration, implementation class (most impl methods are
+one line delegations to a repository) and a launcher that registers the service. Orchestrating
+microservices like \kotlini{feed} and the BFFs pay additional cost because they take downstream
+service stubs as constructor parameters, and the launcher has to create those stubs before
+starting the server. The client side has the same cost: every microservice the client wants to
+talk to needs a separate stub. In Kotlin Remote each dependency is a context parameter resolved
+at the call site, no stub plumbing is involved anywhere.
 
-The rooms chat row needs a separate explanation because the three implementations are not exactly
-the same application. In Kotlin Remote version each user runs its own embedded server in addition
-to the central one, and message delivery is done as a remote call from central server to user
-machine (peer-to-peer). In gRPC and Kotlin RPC versions central server keeps a per-user mailbox
-and pushes messages over a server side stream (\kotlini{stream ChatMessage} in gRPC and
-\kotlini{Flow<ChatMessage>} in Kotlin RPC). So Kotlin Remote version effectively does more: every
-participant is both client and server, while in alternatives only the central node is a server.
-This shows up in the line count: Kotlin Remote pays for setting up an embedded server on each
-participant. If we discount this extra cost, Kotlin Remote rooms chat would be roughly comparable
-to Kotlin RPC version. The opposite reading is also valid: Kotlin Remote forced us into the
-peer-to-peer design because it does not support streaming (see section
-\ref{streaming_limitation_section}), and the extra lines are the cost of working around this
-limitation. Either way, rooms chat numbers should not be read as direct apples-to-apples
-comparison, they only show that Kotlin Remote stays in the same order of magnitude as
-alternatives even when used in a way it was not optimized for.
+It is also worth noticing that Kotlin RPC has a startup ordering constraint that Kotlin Remote
+does not. Stub creation in Kotlin RPC opens a websocket connection immediately
+(\ki{httpClient.rpc { url(...) }} is a suspend function that connects right away), so a
+microservice cannot start before all of its dependencies are already running. The social
+platform launcher in Kotlin RPC has to be split into three phases: first start leaf
+microservices that have no dependencies, then create stubs to them and start orchestrators,
+then create stubs to those and start BFFs. In Kotlin Remote the launcher just starts all ten
+servers in any order because remote calls are made on demand inside individual function calls.
+
+For CMS the lines of code are essentially tied (336 versus 341). The hierarchical contexts
+feature does not by itself reduce the line count, the same information about tiers has to be
+expressed somewhere. What changes is where the information lives. In Kotlin Remote the
+hierarchy is in the type system and is enforced automatically by the compiler. In Kotlin RPC
+the hierarchy lives in the project structure and the programmer has to track at every call
+site which stub to use for which call. Cross-tier internal composition is local in Kotlin
+Remote and either makes spurious network calls back to localhost or has to step around the
+service abstraction in Kotlin RPC.
+
+Rooms chat numbers are not directly comparable because the two implementations do different
+things. In Kotlin Remote each user runs its own embedded server and message delivery is done
+as a remote call from the central server to the user machine. In Kotlin RPC the central server
+keeps a per user mailbox and pushes messages over a server side stream
+(\kotlini{Flow<ChatMessage>}). Kotlin Remote version effectively does more (every participant
+is both client and server), this shows up in the line count. The opposite reading is also
+valid: Kotlin Remote was forced into the peer-to-peer design because it does not support
+streaming (see section \ref{streaming_limitation_section}), and the extra lines are the cost of
+working around this limitation.
 
 \subsubsection{Per-function overhead}
 
-Another way to compare frameworks is to count the amount of work needed to add a new remote
+Another way to compare frameworks is to count how much code is needed to add a new remote
 function to existing application. In Kotlin Remote it is just two extra lines: \kotlini{@Remote}
 annotation and \kotlini{context(...)} declaration. Function body is the actual implementation.
-Listing \ref{per_function_compare} shows side by side what has to be written for the same function
-in each framework.
+In Kotlin RPC each function has to be added in two places: once as a signature in the service
+interface and once as an override in the implementation class. Listing
+\ref{per_function_compare} shows the comparison.
 
 \begin{listing}[!h]
   \begin{minted}{kotlin}
-  // Kotlin Remote: 3 lines
+  // Kotlin Remote: 3 lines, no other file has to be modified
   @Remote
   context(_: RemoteContext<ServerConfig>)
   suspend fun createTodo(request: CreateTodoRequest): Todo = repository.create(request)
 
   // Kotlin RPC: signature in @Rpc interface + override in impl class
-  interface TodoService : RemoteService {
+  interface TodoService {
       suspend fun createTodo(request: CreateTodoRequest): Todo
   }
   class TodoServiceImpl(...) : TodoService {
       override suspend fun createTodo(request: CreateTodoRequest): Todo =
           repository.create(request)
   }
-
-  // gRPC: rpc and message in .proto + override in impl class + proto/domain mapping
-  // todoapp.proto:
-  // message CreateTodoRequest { string title = 1; }
-  // service TodoService { rpc CreateTodo(CreateTodoRequest) returns (Todo); }
-  class TodoServiceImpl(...) : TodoServiceGrpcKt.TodoServiceCoroutineImplBase() {
-      override suspend fun createTodo(request: CreateTodoRequest): Todo =
-          repository.create(request.title)
-  }
   \end{minted}
   \caption{Code required for one remote function}\label{per_function_compare}
 \end{listing}
 
-In Kotlin Remote remote function is added as an isolated unit, no other file has to be modified.
-In Kotlin RPC each remote function has to be added in two places: once in service interface and
-once in implementation class. In gRPC each remote function requires three places to be modified:
-IDL file, implementation class and (often) mapping function between proto and domain types.
-
-\subsubsection{gRPC}
-
-gRPC clearly has the largest per function overhead among the three frameworks. The main source of
-this overhead is the IDL: protobuf messages have to be defined for every request and response and
-mapping functions between them and Kotlin domain types have to be written. In our bank application
-we ended up with three separate proto files (\texttt{user.proto}, \texttt{account.proto},
-\texttt{payment.proto}) totaling 108 lines just for IDL definitions, plus mapping code embedded
-into repositories.
-
-There is also a more subtle problem: protobuf types are not normal Kotlin classes. They are
-generated builders that work via \kotlini{Foo.newBuilder().setX(...).build()} pattern. Code that
-uses these types looks alien comparing to the rest of Kotlin code. In bank-grpc client every
-remote call looks like
-\kotlini{stub.makePayment(MakePaymentRequest.newBuilder().setAmount(...).build())} which is much
-more verbose than equivalent Kotlin Remote call \kotlini{paymentService.makePayment(MakePaymentDto(amount, payer, payee))}.
-
-On the positive side gRPC supports streaming out of the box. In the rooms chat application gRPC
-implementation uses server side streaming (\kotlini{rpc Subscribe ... returns (stream ChatMessage)})
-to push messages to subscribed users. This is a real feature missing from Kotlin Remote at the
-moment. Of course it can be approximated with peer-to-peer remote calls as it is done in Kotlin
-Remote rooms chat, but this requires running embedded server on every client which is not always
-practical.
-
-\subsubsection{Kotlin RPC}
-
-Kotlin RPC is much closer to Kotlin Remote in spirit than gRPC. It uses Kotlin types directly
-(no IDL), serialization is provided by kotlinx.serialization and remote functions are declared
-as suspend functions. The main difference is that Kotlin RPC is service oriented: every remote
-function has to be a method of an \kotlini{@Rpc} annotated interface. This forces user to declare
-service interface and implementation class for every group of remote functions.
-
-For applications that already have natural service decomposition (like our bank application)
-Kotlin RPC overhead is moderate. For applications that do not have such decomposition (like our
-Todo application) it adds extra layer of indirection without much benefit. Kotlin Remote in this
-case allows just to write top level functions and mark them with \kotlini{@Remote}.
-
-Kotlin RPC also supports streaming via Kotlin \kotlini{Flow}. This is a nice feature that fits
-Kotlin ecosystem better than gRPC streams. Like in case of gRPC, this is something Kotlin Remote
-does not support.
+When the function body is a one line delegation to a repository (which is the common case in
+our applications) Kotlin RPC overhead is roughly twice the function body. In Kotlin Remote it
+is one annotation line plus one context line.
 
 \subsection{Limitations}\label{limitations_section}
 
 During development of the example applications several limitations of Kotlin Remote were
-identified. Some of them are related to the early stage of the framework, others are inherent to
-the chosen approach.
+identified. Some of them are related to the early stage of the framework, others are inherent
+to the chosen approach.
 
 \subsubsection{Constant per application setup}
 
-Kotlin Remote requires per application setup code that is roughly the same from one application to
-another. \kotlini{RemoteClient.kt} (around 50 lines) and \kotlini{RemoteServer.kt} (around 60
-lines) files in the Todo and bank applications are almost identical. This code configures
+Kotlin Remote requires per application setup code that is roughly the same from one application
+to another. \kotlini{RemoteClient.kt} and \kotlini{RemoteServer.kt} files in all our example
+applications are almost identical, around 100 lines together. This code configures
 \kotlini{HttpClient}, \kotlini{ContentNegotiation} plugin, serialization modules for remote
-functions and remote classes, installs \kotlini{KRemote} plugin and registers Ktor routes. Most of
-this is parameter passing between framework components and could probably be hidden behind a more
-opinionated default. For applications with single configuration this overhead dominates the
+functions and remote classes, installs \kotlini{KRemote} plugin and registers Ktor routes. Most
+of it is parameter passing between framework components and could probably be hidden behind a
+more opinionated default. For applications with few operations this overhead dominates the
 network code as can be seen in table \ref{loc_table} for the Todo application.
-
-\subsubsection{Polymorphic serialization for remote interface types}
-
-When remote class implements an interface and is used through that interface, polymorphic
-serializer for the interface has to be registered manually. Listing
-\ref{polymorphic_registration} shows code from the bank application that registers
-\kotlini{PaymentService} and \kotlini{AccountService} interfaces with their stub implementations.
-This is a standard kotlinx.serialization mechanism, but it is something user has to remember to
-do.
-
-\begin{listing}[!h]
-  \begin{minted}{kotlin}
-  fun SerializersModule.addAdditionalSerializers(): SerializersModule = this + SerializersModule {
-      polymorphic(PaymentService::class) {
-          subclass(PaymentServiceImpl::class, this@addAdditionalSerializers.serializer())
-      }
-      polymorphic(AccountService::class) {
-          subclass(AccountServiceImpl::class, this@addAdditionalSerializers.serializer())
-      }
-  }
-  \end{minted}
-  \caption{Polymorphic serializers registration in the bank application}\label{polymorphic_registration}
-\end{listing}
-
-In the future this could be done automatically by compiler plugin, because for each
-\kotlini{@RemoteSerializable} class compiler already knows the list of interfaces it implements.
 
 \subsubsection{No streaming support} \label{streaming_limitation_section}
 
 Kotlin Remote currently supports only request-response style remote calls. There is no built in
-way to return a stream of values from remote function or to push values from server to client. As
-shown in the rooms chat application, this can be worked around using peer-to-peer remote calls,
-but this is not always desirable. gRPC supports streaming through HTTP/2 streams and Kotlin RPC
-supports streaming through Kotlin \kotlini{Flow}. Adding similar support to Kotlin Remote is one
-of the directions for future work.
+way to return a stream of values from remote function or to push values from server to client.
+As shown in the rooms chat application, this can be worked around using peer-to-peer remote
+calls, but this is not always desirable because it requires running an embedded server on every
+client. Kotlin RPC supports streaming through Kotlin \kotlini{Flow}. Adding similar support to
+Kotlin Remote is one of the directions for future work.
 
 \subsubsection{Wire protocol coupling to source code}
 
 Remote function in Kotlin Remote is identified on the wire by its fully qualified Kotlin name.
-This means that if user renames remote function, moves it to another package or changes its
-parameter types, all existing clients break. There is no versioning story like in protobuf where
-fields have stable numbers and can be renamed without breaking the wire format. For applications
-where client and server are in the same codebase this is not really a problem, because they are
-always built together. For applications where client and server have separate release cycles this
-can be a significant issue.
+If user renames remote function, moves it to another package or changes its parameter types,
+all existing clients break. There is no versioning story like in protobuf where fields have
+stable numbers and can be renamed without breaking the wire format. For applications where
+client and server are in the same codebase this is not really a problem because they are always
+built together. For applications where client and server have separate release cycles this can
+be a significant issue.
 
 \subsubsection{No cross-language support}
 
-By design both client and server should be written in Kotlin. This is a conscious trade-off,
+By design both client and server should be written in Kotlin. This is a conscious trade-off
 because the framework relies on Kotlin compiler plugin to generate everything from source code.
-gRPC supports many languages because it uses language agnostic IDL. For polyglot environments
-gRPC is still a better choice.
+For polyglot environments gRPC is still a better choice.
 
 \subsubsection{Dependency on experimental Kotlin features}
 
 Kotlin Remote uses context parameters which is experimental Kotlin feature at the moment of
-writing. This means that user has to add \texttt{-Xcontext-parameters} compiler flag to enable it
-and that the API of context parameters can change in future Kotlin releases. Kotlin Remote also
-has to be updated for every new Kotlin compiler version because the compiler plugin API is not
-stable.
+writing. User has to add \texttt{-Xcontext-parameters} compiler flag to enable it and the API
+of context parameters can change in future Kotlin releases. Kotlin Remote also has to be
+updated for every new Kotlin compiler version because the compiler plugin API is not stable.
 
 \subsubsection{Multiple invocations of \kotlini{genCallableMap}}
 
-Looking at \kotlini{RemoteClient.kt} and \kotlini{RemoteServer.kt} of any example application one
-can notice that \kotlini{genCallableMap} is called several times. Each call is replaced at compile
-time with the same map literal which can have hundreds of entries. As a result generated code is
-larger than necessary. Caching of the result on user side is possible but inconvenient because
-\kotlini{genCallableMap} has to be called from different scopes. Compiler plugin could
+Looking at \kotlini{RemoteClient.kt} and \kotlini{RemoteServer.kt} of any example application
+one can notice that \kotlini{genCallableMap} is called several times. Each call is replaced at
+compile time with the same map literal which can have hundreds of entries. As a result generated
+code is larger than necessary. Caching of the result on user side is possible but inconvenient
+because \kotlini{genCallableMap} has to be called from different scopes. Compiler plugin could
 deduplicate these calls automatically but this is not implemented yet.
 
 \subsection{Future work}
@@ -1666,15 +1720,15 @@ directions for future work were identified during the development.
 
 \subsubsection{Code slicing}
 
-Currently every machine that runs Kotlin Remote application contains the full compiled artifact,
-including code that is meant to be executed on other machines. For the bank application this
-means that user microservice contains compiled code of account and payment microservices, even
-though it never executes them. Type information about target machine is already encoded in remote
-contexts (\kotlini{UserServiceConfig}, \kotlini{AccountServiceConfig}, etc.). This information
-could be used by compiler plugin to slice the application into per node artifacts and include in
-each artifact only code reachable from that node. This is essentially what tierless languages
-discussed in section \ref{multi-tier-section} do at the language level. Doing it as a compiler
-plugin pass over already typed Kotlin program is a feasible direction.
+Currently every machine that runs Kotlin Remote application contains the full compiled
+artifact, including code that is meant to be executed on other machines. For the social
+platform this means that user microservice contains compiled code of all other microservices,
+even though it never executes them. Type information about target machine is already encoded in
+remote contexts (\kotlini{UserServiceConfig}, \kotlini{PostServiceConfig}, etc.). This
+information could be used by compiler plugin to slice the application into per node artifacts
+and include in each artifact only code reachable from that node. This is essentially what
+tierless languages discussed in section \ref{multi-tier-section} do at the language level.
+Doing it as a compiler plugin pass over already typed Kotlin program is a feasible direction.
 
 \subsubsection{Remote lambdas}
 
