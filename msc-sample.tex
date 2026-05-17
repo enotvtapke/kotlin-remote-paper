@@ -1305,6 +1305,40 @@ mapping. We did prototype gRPC versions for the smaller applications and the per
 overhead in gRPC was always the largest of the three frameworks. So we drop gRPC from the main
 comparison and focus on the closer alternative.
 
+Table \ref{features_table} summarizes how the three frameworks compare on the features that
+matter for choosing between them. gRPC and Kotlin RPC look similar on the API style rows: both
+require a service interface declaration, neither makes a remote call visible at the call site,
+neither supports stateful remote objects with framework-managed lifecycle, neither expresses
+hierarchies between services in the type system. They differ on cross-language support, on the
+choice of wire format and on whether the transport is fixed. Kotlin Remote differs from both
+alternatives on the API style rows and on the absence of streaming, which it currently does not
+support.
+
+\begin{table}[!h]
+  \begin{center}
+    \begin{tabular}{lccc}
+      \toprule
+      Feature & gRPC & Kotlin RPC & Kotlin Remote \\
+      \midrule
+      Service interface required & Yes (IDL) & Yes (\kotlini{@Rpc}) & No \\
+      Top level functions can be remote & No & No & Yes \\
+      Remote call visible at call site & No & No & Yes \\
+      Hierarchical context tiers & No & No & Yes \\
+      Stateful remote objects & No & No & Yes \\
+      \midrule
+      Streaming & Yes & Yes (\kotlini{Flow}) & No \\
+      \midrule
+      Kotlin Multiplatform support & Limited & Yes & Yes \\
+      Cross-language & Yes & No & No \\
+      Separate schema file & Yes (\texttt{.proto}) & No & No \\
+      Transport & HTTP/2 (fixed) & Pluggable (Ktor) & Pluggable (Ktor) \\
+      Wire format & Protocol Buffers & \texttt{kotlinx.serialization} & \texttt{kotlinx.serialization} \\
+      \bottomrule
+    \end{tabular}
+    \caption{Feature comparison of three RPC frameworks for Kotlin.}\label{features_table}
+  \end{center}
+\end{table}
+
 Four applications were chosen so that they cover different scenarios. \term{Todo} is a simple
 CRUD application with four operations and baselines per application setup cost. \term{Rooms
 chat} is a chat with rooms that uses remote classes and peer-to-peer architecture. \term{Social
@@ -1553,12 +1587,20 @@ bypasses the service layer.
 
 \subsection{Comparison to Kotlin RPC}
 
-Table \ref{loc_table} shows the size of network code in lines for each application. By network
-code we mean code that exists only because the application is distributed: remote function
-declarations and decorations, service interfaces, client and server setup. Pure business logic
-(repositories, command line interface, desktop UI) and pure data classes are excluded. Numbers
-should be taken as rough approximations because in Kotlin Remote network annotations are
-interleaved with business logic and the exact split is somewhat subjective.
+Table \ref{loc_table} shows the size of framework-specific code for each application. By
+framework-specific code we mean code that exists only because the project uses this particular
+RPC framework's abstractions: remote function annotations and signatures (signatures count
+because they determine serialization), framework configuration classes and objects,
+\kotlini{registerService} on the server and \kotlini{withService} on the client (the analogs
+of "context object definition" and "context block opening" in Kotlin Remote), context blocks
+and remote calls at the call site, implementation classes that wrap \kotlini{@Rpc} interfaces.
+Pure business logic (function bodies, repositories, data classes, CLI text), Ktor transport
+setup (\kotlini{HttpClient} and \kotlini{embeddedServer} construction, install of generic Ktor
+plugins, routing wrappers, JSON serializer configuration), framework-specific transport-binding
+helpers (\kotlini{install(KRemote)}, \kotlini{install(Krpc)}, \kotlini{rpc("/api")},
+\kotlini{remote("/call")}, \kotlini{rpcConfig}, \kotlini{installKrpc()}), and imports, package
+declarations and empty lines are all excluded. Numbers are approximations because the split
+of some borderline lines is subjective.
 
 \begin{table}[!h]
   \begin{center}
@@ -1566,34 +1608,47 @@ interleaved with business logic and the exact split is somewhat subjective.
       \toprule
       Application & Kotlin Remote & Kotlin RPC & Per-op (KR / krpc) \\
       \midrule
-      Todo (4 ops) & 164 & 86 & 41 / 22 \\
-      Rooms chat$^{\dagger}$ & ${\sim}165$ & ${\sim}120$ & --- \\
-      Social platform (10 microservices, 36 ops) & 545 & 864 & 15 / 24 \\
-      CMS (4 tiers, 14 ops) & 336 & 341 & 24 / 24 \\
+      Todo (4 ops) & 20 & 20 & 5 / 5 \\
+      Rooms chat$^{\dagger}$ & ${\sim}50$ & ${\sim}35$ & --- \\
+      Social platform (10 microservices, 36 ops) & ${\sim}155$ & ${\sim}245$ & ${\sim}4$ / ${\sim}7$ \\
+      CMS (4 tiers, 14 ops) & ${\sim}75$ & ${\sim}80$ & ${\sim}5$ / ${\sim}6$ \\
       \bottomrule
     \end{tabular}
-    \caption{Lines of network code per application. $^{\dagger}$Rooms chat numbers are not
-    directly comparable, see discussion below.}\label{loc_table}
+    \caption{Framework-specific code per application. $^{\dagger}$Rooms chat numbers
+    are not directly comparable, see discussion below.}\label{loc_table}
   \end{center}
 \end{table}
 
-The table tells three different stories at three different scales. For the smallest application
-(Todo) Kotlin Remote produces noticeably more network code than Kotlin RPC. The reason is per
-application setup of \kotlini{RemoteClient} and \kotlini{RemoteServer} which is around 100 lines
-for any application regardless of its size. Kotlin RPC has a leaner per application setup. For
-small applications with few operations this setup cost dominates.
+Three patterns emerge from the table. For the Todo application both frameworks use the same
+amount of framework code (20 lines, 5 per operation). Kotlin Remote pays 3 lines per remote
+function (annotation with context parameter, then the suspend function signature on the next
+line, then the function body) while Kotlin RPC pays 2 lines per function (interface signature
+plus impl override) plus around 5 lines per service for scaffolding (\kotlini{@Rpc} interface
+declaration with braces, impl class declaration with \kotlini{:~ServiceName} and braces). For
+one service with four operations these cancel out exactly.
 
-For social platform with ten microservices and thirty-six operations the situation reverses.
-Kotlin Remote needs 545 lines, Kotlin RPC needs 864. Per operation that is 15 versus 24 lines.
-The per application setup cost in Kotlin Remote is the same as for Todo, but it is now
-amortized over many operations. Kotlin RPC on the other hand pays per microservice cost in
-three places: \kotlini{@Rpc} interface declaration, implementation class (most impl methods are
-one line delegations to a repository) and a launcher that registers the service. Orchestrating
-microservices like \kotlini{feed} and the BFFs pay additional cost because they take downstream
-service stubs as constructor parameters, and the launcher has to create those stubs before
-starting the server. The client side has the same cost: every microservice the client wants to
-talk to needs a separate stub. In Kotlin Remote each dependency is a context parameter resolved
-at the call site, no stub plumbing is involved anywhere.
+The CMS application has four tiers and fourteen operations and is essentially tied (around 75
+versus 80). Kotlin Remote has four hierarchical \kotlini{RemoteConfig} interfaces plus four
+session classes, which add up to roughly the same as the four \kotlini{@Rpc} interfaces in
+Kotlin RPC. The hierarchical contexts feature does not by itself shrink the line count, the
+same information about tiers has to be expressed somewhere. What it changes is where the
+information lives: in Kotlin Remote it is in the type system and the compiler enforces it; in
+Kotlin RPC the programmer has to track at every call site which stub to use for which call.
+Cross-tier internal composition is local in Kotlin Remote (calls dispatch their local bodies
+because \kotlini{LocalContext} is a subtype of \kotlini{RemoteContext<X>} for any \kotlini{X}),
+and either makes spurious network calls back to localhost or has to step around the service
+abstraction in Kotlin RPC.
+
+The social platform shows the biggest gap (around 155 versus 245, Kotlin Remote is about 40
+percent less). Per operation that is 4 lines for Kotlin Remote and 7 for Kotlin RPC. Two
+things contribute. First, ten microservices in Kotlin RPC mean ten implementation classes that
+mostly delegate to repositories (around 100 framework lines that do not exist in Kotlin
+Remote). Second, orchestrating microservices like \kotlini{feed} and the BFFs require explicit
+stub creation (\kotlini{withService} calls) for every dependent microservice, and matching
+\kotlini{registerService} calls inside \kotlini{AllLauncher}. The launchers in Kotlin RPC
+contribute around 43 framework lines compared to zero in Kotlin Remote. Kotlin Remote replaces
+both with one \kotlini{API.kt} file of top level functions plus one \kotlini{Configs.kt} with
+ten \kotlini{RemoteConfig} objects.
 
 It is also worth noticing that Kotlin RPC has a startup ordering constraint that Kotlin Remote
 does not. Stub creation in Kotlin RPC opens a websocket connection immediately
@@ -1604,24 +1659,15 @@ microservices that have no dependencies, then create stubs to them and start orc
 then create stubs to those and start BFFs. In Kotlin Remote the launcher just starts all ten
 servers in any order because remote calls are made on demand inside individual function calls.
 
-For CMS the lines of code are essentially tied (336 versus 341). The hierarchical contexts
-feature does not by itself reduce the line count, the same information about tiers has to be
-expressed somewhere. What changes is where the information lives. In Kotlin Remote the
-hierarchy is in the type system and is enforced automatically by the compiler. In Kotlin RPC
-the hierarchy lives in the project structure and the programmer has to track at every call
-site which stub to use for which call. Cross-tier internal composition is local in Kotlin
-Remote and either makes spurious network calls back to localhost or has to step around the
-service abstraction in Kotlin RPC.
-
 Rooms chat numbers are not directly comparable because the two implementations do different
 things. In Kotlin Remote each user runs its own embedded server and message delivery is done
-as a remote call from the central server to the user machine. In Kotlin RPC the central server
-keeps a per user mailbox and pushes messages over a server side stream
-(\kotlini{Flow<ChatMessage>}). Kotlin Remote version effectively does more (every participant
-is both client and server), this shows up in the line count. The opposite reading is also
-valid: Kotlin Remote was forced into the peer-to-peer design because it does not support
-streaming (see section \ref{streaming_limitation_section}), and the extra lines are the cost of
-working around this limitation.
+as a remote call from the central server to the user machine using stored
+\kotlini{RemoteContext} values. In Kotlin RPC the central server keeps a per user mailbox and
+pushes messages over a server side stream (\kotlini{Flow<ChatMessage>}). Kotlin Remote version
+actually has more framework code than Kotlin RPC version (around 50 versus 35) because the
+peer-to-peer design needs two \kotlini{RemoteConfig} classes (one per machine role) plus nine
+\kotlini{@Remote} functions, against Kotlin RPC version's single \kotlini{@Rpc} interface with
+eight methods.
 
 \subsubsection{Per-function overhead}
 
@@ -1661,16 +1707,17 @@ During development of the example applications several limitations of Kotlin Rem
 identified. Some of them are related to the early stage of the framework, others are inherent
 to the chosen approach.
 
-\subsubsection{Constant per application setup}
+\subsubsection{Verbose Ktor wiring}
 
-Kotlin Remote requires per application setup code that is roughly the same from one application
-to another. \kotlini{RemoteClient.kt} and \kotlini{RemoteServer.kt} files in all our example
-applications are almost identical, around 100 lines together. This code configures
-\kotlini{HttpClient}, \kotlini{ContentNegotiation} plugin, serialization modules for remote
-functions and remote classes, installs \kotlini{KRemote} plugin and registers Ktor routes. Most
-of it is parameter passing between framework components and could probably be hidden behind a
-more opinionated default. For applications with few operations this overhead dominates the
-network code as can be seen in table \ref{loc_table} for the Todo application.
+Kotlin Remote requires more verbose Ktor wiring than Kotlin RPC. On the server side user has to
+install \kotlini{ContentNegotiation} with serializer module built from \ki{genCallableMap()}, in
+addition to installing \kotlini{KRemote} plugin and registering remote routes. On the client
+side \kotlini{ContentNegotiation} has to be installed in \kotlini{HttpClient} with the same
+serializer module. Kotlin RPC hides equivalent work behind \kotlini{install(Krpc)} on the
+server and \kotlini{installKrpc()} on the client. This Ktor wiring is not part of our
+framework code comparison in table \ref{loc_table}, but the user still has to write it.
+\kotlini{RemoteClient.kt} and \kotlini{RemoteServer.kt} files in all our example applications
+are almost identical and could probably be hidden behind a more opinionated default.
 
 \subsubsection{No streaming support} \label{streaming_limitation_section}
 
