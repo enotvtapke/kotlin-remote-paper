@@ -144,30 +144,36 @@ Date, Signature
 
 \section*{Abstract}
 
-Consider this a separate document, although it is submitted together
-with the rest. The abstract aims at another audience than the rest
-of the proposal. It is directed at the final decision maker or
-generalist, who typically is not an expert at all in your field, but
-more a manager kind of person. Thus, don't go into any technical
-description in the abstract, but use it to motivate the work and to
-highlight the importance of your project.
+A large subset of modern software for Kotlin and Kotlin Multiplatform (KMP) uses network
+interactions extensively. Backend microservices, client-server applications and distributed
+systems are typical examples. Many such projects follow \term{shared-codebase} (also called
+\term{monolithic}) model in which client and server live in a single Kotlin project and share
+data types and parts of business logic. Existing RPC frameworks for Kotlin like gRPC and Kotlin
+RPC are not boilerplate-heavy in general. However, they all require developer to describe remote
+functions in a separate service interface. This interface plays the role of a contract between
+client and server, which is necessary when client and server are developed independently. In
+shared-codebase setting this contract becomes redundant, because client and server already share
+the codebase and signatures of remote functions can be the contract on their own. The interface
+declaration then turns into \term{boilerplate code} that exists only because the chosen framework
+requires it.
 
-(target size: 15-20 lines)
+In this thesis we developed a new RPC framework for shared-codebase Kotlin projects. We called
+this new framework \term{Kotlin Remote}. Kotlin Remote uses Kotlin's experimental \term{context
+parameters} feature to express remote calls without service interface declaration. Context
+parameter of remote function carries information about target machine, which makes function
+callable on this machine, and at the same time appears in function signature, which makes remote
+calls clearly visible at the type level.
 
-A large subset of modern software for Kotlin and Kotlin Multiplatform (KMP) uses network interactions
-extensively. However, standard technologies for organizing network interactions in Kotlin like REST
-or \term{Remote Method Invocation} (RMI) require writing a lot of additional code that
-is usually repetitive across lots of applications. Such code is called \term{boilerplate code}.
-
-In this thesis we developed a new framework for organizing network interactions in Kotlin and KMP. 
-We called this new framework \term{Kotlin Remote}. Kotlin Remote is based on ideas of 
-\term{Remote Procedure Calls} (RPC), generalized version of RMI, and uses implicit parameters to 
-make functions callable on remote machines via network. 
-
-We believe that approach we took in Kotlin Remote leads to the great reduction of boilerplate 
-and at the same time makes remote calls explicit for the developer. Furthermore, Kotlin Remote
-works especially well when server and client share one codebase, which is highly important for 
-KMP environment.
+Kotlin Remote is intentionally scoped to the shared-codebase case. It does not try to compete
+with general purpose RPC frameworks like gRPC or Kotlin RPC outside this scope. In particular,
+it does not support cross-language communication and is not meant for projects in which client
+and server are developed independently in separate codebases. In those scenarios the service
+interface required by gRPC or Kotlin RPC is not redundant, so the trade made by Kotlin Remote
+does not pay off. Inside its target scope, however, Kotlin Remote removes the redundant interface
+declaration and leads to substantial reduction of boilerplate compared to existing alternatives,
+while keeping remote calls explicit for the developer. Shared-codebase model is very common
+in Kotlin and KMP environment, so we believe Kotlin Remote will be useful despite its narrow
+scope.
 
 
 \newpage
@@ -178,102 +184,167 @@ KMP environment.
 
 \section{Introduction}
 
-This, like the rest, addresses fellow experts from your field (but
-not from your particular topic of research). Here you should
-technically connect to the main concepts from that field and give an
-outline of your project, stating the research/engineering question
-that you want to get answered by your project.
-
-(target size: 1-2 pages)
-
-
-
-
 Nowadays, Kotlin programming language is used frequently for developing software that relies
-heavily on network interactions. Such software includes distributed networks, microservices,
-client-server applications and much more. Usually code base of all such applications can be roughly
-separated into two parts: part responsible for actual business logic and part responsible for
-network interactions. While the former part differs significantly from program to program, network
-interactions part is usually very similar for a wide variety of applications. This leads to the
-abundance of boilerplate code in the said part. For convenience from now on we will call part of
-the program source code responsible for network interactions \term{network part} of the program. It
-is desired to make network part of the program as small and simple as possible, because this would
-allow developers to think less about network and concentrate on the actual business logic.
+heavily on network interactions. Such software includes backend microservices, client-server
+applications and distributed systems. Many of these projects follow \term{shared-codebase} (also
+called \term{monolithic}) model in which client and server live in a single Kotlin project and
+share data types and parts of business logic. By shared-codebase project we mean a project where
+all the parts that communicate over the network are developed together, compiled together and
+released together. This is the setting this thesis is concerned with. The opposite setting, in
+which client and server are developed independently, often in different languages, by different
+teams, is out of scope.
+
+Usually code base of shared-codebase applications can be roughly separated into two parts:
+part responsible for actual business logic and part responsible for network interactions. While
+the former part differs significantly from program to program, network interactions part is usually
+very similar for a wide variety of applications. This leads to the abundance of boilerplate code
+in the said part. For convenience from now on we will call part of the program source code
+responsible for network interactions \term{network part} of the program. It is desired to make
+network part of the program as small and simple as possible, because this would allow developers
+to think less about network and concentrate on the actual business logic. In shared-codebase
+setting this is especially important, because lots of information is essentially duplicated between
+client and server parts of the codebase, and a lot of this duplication can be avoided if the
+network part is designed with shared codebase in mind.
 
 However, standard ways to implement network part in Kotlin are not well suited for making this part
-concise. The problem lies in the excessive explicitness of the standard approaches. For example,
-REST architecture frequently used in Kotlin forces developers to manually write routing logic as
-well as part of the serialization and deserialization logic. This has its benefits because it
-provides fine control over the network part logic, but often this fine-tuning capabilities is not
-needed. Frameworks like gRPC and kRPC are a step further from REST in attempt to decrease
-boilerplate. But their usage still requires describing and creating RPC services explicitly,
-arbitrary functions cannot be executed remotely. Other popular approaches like one used in Retrofit
-framework are basically variations of the named approaches.
+concise in shared-codebase setting. There are two main families of network technologies used in
+Kotlin today. The first one is general purpose HTTP frameworks, the most popular of which is Ktor.
+The second one is RPC frameworks, of which gRPC and Kotlin RPC are notable representatives.
+
+Ktor forces developers to manually write routing logic, serialization and deserialization of
+request and response bodies, HTTP client calls and error handling code. This gives fine-grained
+control over the network part logic, which is beneficial when complex public APIs are exposed to
+the outside world. However, for internal service-to-service communication in shared-codebase
+projects, this level of control is unnecessary and the manual work is pure overhead.
+
+gRPC and Kotlin RPC reduce this overhead by following \term{Remote Method Invocation} (RMI)
+pattern. Developer declares a service as an interface, implements it in a class and then receives a
+client proxy for that interface. These frameworks are not boilerplate-heavy in general. In fact,
+their per function overhead is already small: developer adds a method signature to the service
+interface and writes the implementation. The IDL or \kotlini{@Rpc} interface plays an important
+role in those frameworks. It is the explicit contract between client and server, which is exactly
+what is needed when client and server are developed independently, in different languages or with
+different release schedules. In that setting the interface is not boilerplate at all, it is a
+necessary part of the design.
+
+The picture changes in shared-codebase setting. Here client and server already share the codebase,
+data types are shared, and a single change to a signature is a compile-time change for both sides
+at once. The contract between client and server is implicit in the shared code. Declaring it
+explicitly in a service interface duplicates information that is already there. The interface
+declaration, the implementation class that forwards calls to the actual logic, the IDL with its
+proto-to-domain mappings in case of gRPC, all become redundant. They are boilerplate not because
+the framework is verbose, but because they exist only to fulfill the framework's structural
+requirement of having a service interface, while the contract they encode is already encoded in
+the shared codebase.
+
+Existing RPC frameworks have a few other drawbacks in shared-codebase setting that follow from the
+same root cause. Top level functions cannot be remote at all, every remote function has to be a
+method of some service. At the call site remote call looks identical to a local one, there is
+nothing in the syntax that tells developer that this is a network operation that might be slow or
+fail. The approach follows strict OOP style which is not the only viable option for Kotlin. These
+design choices make sense for gRPC and Kotlin RPC because they are general purpose frameworks
+aiming at much wider scope than shared-codebase projects. The same design choices are precisely
+what makes them carry redundant declarations in shared-codebase setting.
 
 The goal of the thesis is to develop alternative approach to organizing network interactions in
-Kotlin that will make network part smaller and easier by reducing amount of boilerplate code.
+shared-codebase Kotlin projects that will make network part smaller and easier by reducing amount
+of boilerplate code. We deliberately scope the work to shared-codebase setting and do not try to
+compete with gRPC, Kotlin RPC or Ktor outside this scope. The hypothesis is that by sacrificing
+generality (cross-language support, public-facing API ergonomics, separate evolution of client and
+server) the framework can give substantial reduction of boilerplate inside its target scope.
 
 To achieve this goal we took a look at RPC in Kotlin from another perspective not common for
-object-oriented languages. The problem with existing RPC frameworks for Kotlin is their focus on
-RPC services, special classes which code is generated during compile time using method signatures
-from user defined interface. Even though this approach is the only option for strict OOP languages
-(like Java) it can be improved for Kotlin which is not purely OOP language. In this paper we
-explore using coeffects, a concept from the world of functional programming, to implement RPC
-framework that require to write much less boilerplate code than more traditional RPC frameworks.
-More than that, this approach makes network code easily distinguishable from the rest of the
-program. In Kotlin programming with coeffects can be expressed by using experimental language
-feature called \term{context parameters}, which allows function has several receiver parameters, 
-that implicitly passed to the function from the invocation context.
+object-oriented languages. In this paper we explore using \term{coeffects}, a concept from the
+world of functional programming, to implement RPC framework that requires to write much less
+boilerplate code than more traditional RPC frameworks in shared-codebase setting. More than that,
+this approach makes network code easily distinguishable from the rest of the program. In Kotlin
+programming with coeffects can be expressed by using experimental language feature called
+\term{context parameters}, which allows function to have several receiver parameters that are
+implicitly passed to the function from the invocation context. We use context parameters to carry
+information about target machine. Such context parameter appears in remote function signature,
+which makes remote calls clearly visible at the type level, and at the same time is resolved
+automatically at the call site, so caller does not have to pass it manually.
+
+\subsection{Goal and objectives} \label{goal_and_objectives_section}
+
+The goal of this thesis is to develop an RPC framework specifically for Kotlin Multiplatform
+shared-codebase projects that reduces boilerplate code compared to existing alternatives in this
+setting. The framework is not meant to replace general purpose RPC frameworks outside of
+shared-codebase scope.
+
+To reach this goal we set the following objectives:
+\begin{enumerate}
+  \item Prototype RPC framework that uses context parameters as the mechanism for expressing
+        remote calls.
+  \item Prototype support for distributed objects, that is classes with state that lives on
+        remote machine.
+  \item Implement and test the framework as a Kotlin compiler plugin together with a runtime
+        library.
+  \item Evaluate the result by comparing it with existing alternatives in terms of boilerplate
+        code.
+\end{enumerate}
+
+Implementation of the framework should satisfy the following technical requirements:
+\begin{enumerate}
+  \item Any named Kotlin function should be callable remotely, not only methods of service
+        interfaces. This includes top level functions, extension functions and methods of
+        regular classes.
+  \item Remote functions should be distinguishable from local ones at the type level, so
+        developer always knows when network call is happening.
+  \item Kotlin Multiplatform compatibility should be preserved, which means framework has to
+        work on all KMP targets (JVM, JavaScript, Native, WebAssembly) without relying on
+        reflection.
+\end{enumerate}
 
 \textbf{This work has the following structure:}
 \begin{enumerate}
-  \item Section 2 reviews background and related work on organizing network interaction both in Kotlin ecosystem and outside that.
-  \item Section 3 describes architecture of the developed approach.
-  \item Section 4 evaluates the approach by using small applications and comparing them with standard approaches.
-  \item Section 5 concludes, discuss limitations and future work.
+  \item Section 2 reviews background and related work on organizing network interactions both in Kotlin ecosystem and outside that.
+  \item Section 3 describes architecture of the developed framework.
+  \item Section 4 evaluates the framework by using small applications and comparing them with standard approaches.
+  \item Section 5 concludes, discusses limitations and future work.
 \end{enumerate}
-
-\subsection{Goal}
-
-Goal (honest version)
-
-Investigate how coeffects can be used for remote procedure calls
-
-Investigate whether RPC in the shared-codebase setting can be expressed through coeffects using 
-Kotlin's experimental context parameters feature, instead of the service-oriented model that gRPC and Kotlin RPC adopt, and assess where this approach is preferable and where it is not.
 
 \section{Background and Related work}
 
-This part should make clear which question, exactly, you are
-pursuing, and why your project is relevant/interesting. This is the
-place to explain the background and to review the existing
-literature. Where does your project extend the state of the art?
-What weaknesses in known approaches do you hope to overcome? If you
-have carried out preliminary experiments, describe them here.
+This section gives an overview of RPC as whole, as well as specific frameworks used in Kotlin
+ecosystem to organize network interactions. Concepts used in this thesis, like coeffects and Kotlin
+context parameters, are also explained here.
 
-(target size: 5-10 pages)
+Before going further it is worth restating the scope. Existing frameworks discussed below (Ktor,
+gRPC, Kotlin RPC) are general purpose tools that target a much wider scope than this work. They
+are used in cross-language projects, in projects where client and server live in separate
+codebases and have separate release cycles, and in projects where client and server are developed
+by different teams. We do not claim that Kotlin Remote competes with them in those scenarios. On
+the contrary, in those scenarios gRPC and Ktor are very likely the right choice. The discussion
+below is about how these frameworks behave in shared-codebase Kotlin projects, which is the only
+setting Kotlin Remote targets.
 
-This section will give an overview of RPC as whole, as well as specific frameworks used in Kotlin ecosystem
-to implement RPC. Also concepts used in this thesis, like coeffects and Kotlin context parameters, will
-be explained here.
-
-Proposed approach is a specific version of RPC, because of that it makes sense to only compare it
-to other RPC approaches that are used in Kotlin. The most popular ones are gRPC and new Kotlin RPC.
-Unfortunately, these frameworks make developer writing a substantial amount of boilerplate code, because 
-they require to declare services. Only methods of these services can be executed remotely, but methods of normal
-classes and top level functions cannot. Basically all the existing RPC frameworks for Kotlin use 
-Remote Method Invocation (RMI), the object-oriented programming analog of RPC, even though Kotlin is
-not entirely OOP language. The main aim of developed approach is reduction of boilerplate code required 
-to organize network interaction in comparison with existing RPC frameworks in Kotlin.
+Proposed approach is a specific version of RPC. Because of that it makes sense to compare it mostly
+to other RPC approaches used in Kotlin. The most popular ones are gRPC and new Kotlin RPC. These
+frameworks are not boilerplate-heavy in general, their per function overhead is small. They do
+however require developer to describe remote functions in a separate service interface and to
+implement this interface in a service class. In shared-codebase setting both of these become
+redundant, because client and server already share the codebase and the contract that the service
+interface is supposed to encode is implicit in the shared code. Outside of shared-codebase setting
+the service interface is not redundant, it is the explicit contract between independently
+developed parts and existing frameworks are well-designed around it. Additionally, basically all
+the existing RPC frameworks for Kotlin use Remote Method Invocation (RMI), the object-oriented
+programming analog of RPC, where only methods of services can be executed remotely. Top level
+functions cannot. This fits Kotlin only partially, because Kotlin is not entirely OOP language.
+The main aim of developed framework is removal of the service interface redundancy in
+shared-codebase Kotlin projects.
 
 Apart from RPC frameworks, REST architectural style is also widely used in Kotlin to organize
-network interactions. Therefore, it is useful to take a brief look at REST as well. Apart from
-looking at existing frameworks, this section also takes a look on related ideas from functional
-programming. Namely on \term{coeffects}, that are foundational concept on which Kotlin Remote is
-built. Coeffects are tightly related to \term{implicit parameters}, which Kotlin recently got an
-implementation of in form of experimental \term{context parameters} feature. Coeffects also have
-close ties to \term{multi-tier programming languages}, in which separation between different
-machines is encoded in the type system. All of these ideas will be discussed below.
+network interactions. The most popular library for that is Ktor. Therefore, it is useful to take a
+brief look at REST as well. Apart from looking at existing frameworks, this section also takes a
+look on related ideas from functional programming. Namely on \term{coeffects}, that are
+foundational concept on which Kotlin Remote is built. Coeffects are tightly related to
+\term{implicit parameters}, which Kotlin recently got an implementation of in form of experimental
+\term{context parameters} feature. Coeffects also have close ties to \term{multi-tier programming
+languages}, in which separation between different machines is encoded in the type system.
+Multi-tier languages are particularly relevant because they target precisely the shared-codebase
+setting and inspired some of the design decisions made in Kotlin Remote. All of these ideas will
+be discussed below.
 
 \subsection{RPC}
 
@@ -357,16 +428,27 @@ on the server side and uses client stub on the client side to make remote calls.
 the same role as stubs in Kotlin RPC, which were briefly mentioned in the section
 \ref{client-section}.
 
-Even though gRPC reduces some of the boilerplate compared to manual usage of HTTP frameworks, it
-still has its drawbacks. Firstly, every remote function should be a method of some service, top
-level functions cannot be remote. Secondly, separate IDL is required, which means that for each
-remote function user has to write its description in IDL, implement service method that calls
-actual function and provide mappings between IDL types and domain types of the application. The
-latter is especially noticeable when client and server share the same codebase, because in this
-case types from this shared codebase have to be mapped to and from generated IDL types. Finally,
-remote call on the client side looks indistinguishable from local call, which is not entirely good,
-because remote calls are inherently slower and more error-prone than local ones, so developer
-should be aware of when remote call is happening.
+gRPC is a mature framework with little boilerplate per remote function in its target setting. For
+each remote function developer writes its description in IDL once and provides implementation on
+the server side. The IDL has a clear purpose: it is the cross-language contract between client and
+server and it is precisely what allows gRPC to support clients and servers written in different
+languages. In setting gRPC is designed for, the IDL is not boilerplate, it is the framework's most
+useful feature.
+
+In shared-codebase Kotlin setting, however, several gRPC features become redundant. Separate IDL
+duplicates type information that is already shared between client and server through the codebase.
+For each remote function developer has to write its description in IDL, implement service method
+that calls actual function and provide mappings between IDL types and domain types of the
+application. The latter is the most visible cost, because in shared-codebase project domain types
+already exist in the shared code and have to be mapped to and from generated IDL types just for the
+sake of going over the wire. Cross-language support, the feature that justifies all of this in the
+general case, is not used at all when both sides are Kotlin.
+
+Two more drawbacks are not specific to shared-codebase setting but matter for our discussion.
+First, every remote function should be a method of some service, top level functions cannot be
+remote. Second, remote call on the client side looks indistinguishable from local call. This is
+not entirely good, because remote calls are inherently slower and more error-prone than local
+ones, so developer should be aware of when remote call is happening.
 
 It is worth noticing that gRPC follows RMI approach: every remote function is a method of some
 service, services are first-class entities. This fits naturally with strict OOP languages like
@@ -383,10 +465,22 @@ server side. The exact example of Kotlin RPC usage is shown later in section \re
 on listing \ref{krpc_remote_call}.
 
 Comparing to gRPC, Kotlin RPC is less verbose for shared-codebase scenarios, because there is no
-need to write IDL and mapping between IDL types and domain types of the application. However, the
-same fundamental drawbacks remain: top level functions cannot be remote, every remote function has
-to be a method of some service and remote calls are not visible at the call site. Just like gRPC,
-Kotlin RPC is essentially an RMI framework which is not the only viable approach for Kotlin.
+need to write IDL and mapping between IDL types and domain types of the application. Kotlin RPC
+is in fact quite a thin framework: for each remote function developer writes a method signature in
+\kotlini{@Rpc} interface and an override in the implementation class. There is almost no other per
+function overhead. The framework is well-designed and not boilerplate-heavy in any general sense.
+
+What remains, however, is the \kotlini{@Rpc} interface itself together with its implementation
+class. As in gRPC, this interface is the contract between client and server. In separate-codebase
+project it is a useful thing to have: it is the type that survives both sides being changed
+independently. In shared-codebase Kotlin project the contract is implicit in the shared code and
+the \kotlini{@Rpc} interface duplicates it. Implementation class on the server only forwards calls
+to the actual logic, which in shared-codebase project lives in the same module anyway, so this
+class is essentially a layer of indirection that exists only because Kotlin RPC requires it. The
+same fundamental drawbacks as in gRPC also remain: top level functions cannot be remote, every
+remote function has to be a method of some service and remote calls are not visible at the call
+site. Just like gRPC, Kotlin RPC is essentially an RMI framework which is not the only viable
+approach for Kotlin.
 
 \subsection{Coeffects}
 
@@ -1299,23 +1393,30 @@ Ktor integration provides transport for leases, user can provide its own ways to
 \section{Evaluation of the Kotlin Remote}
 
 To evaluate the framework four example applications were developed using Kotlin Remote and
-rewritten using Kotlin RPC. All implementations are functionally equivalent, the only difference
-is in the way network interactions are organized. As we are interested in network code, we will
-be focusing on it during comparison. Business logic of applications (database access, command
-line user interface, etc.) is roughly the same in all implementations. Source code is available
-at \texttt{integration-tests/} folder of Kotlin Remote repository.
+rewritten using Kotlin RPC. All four applications follow shared-codebase model: client and server
+parts live in the same Kotlin project and share data types. This is the only setting Kotlin Remote
+is designed for, so the evaluation does not attempt to cover scenarios outside of it (for example,
+separate codebases or cross-language communication). In those scenarios Kotlin Remote is simply not
+applicable and other frameworks should be used. All implementations are functionally equivalent,
+the only difference is in the way network interactions are organized. As we are interested in
+network code, we will be focusing on it during comparison. Business logic of applications (database
+access, command line user interface, etc.) is roughly the same in all implementations. Source code
+is available at \texttt{integration-tests/} folder of Kotlin Remote repository.
 
-We compare Kotlin Remote only with Kotlin RPC. The reason is that for Kotlin only and transport
-agnostic setting, which is the setting Kotlin Remote targets, gRPC and Kotlin RPC are very close
-in features: both rely on service interface declaration, both generate stubs and server bases at
+We compare Kotlin Remote only with Kotlin RPC. The reason is that for shared-codebase Kotlin only
+setting, which is the setting Kotlin Remote targets, gRPC and Kotlin RPC are very close in
+features: both rely on service interface declaration, both generate stubs and server bases at
 compile time, both require to implement the service interface. But Kotlin RPC is more concise
 and more idiomatic for Kotlin. It uses Kotlin types directly with no separate IDL, serialization
 is provided by \texttt{kotlinx.serialization}, remote functions are suspend functions. gRPC in
 comparison has separate proto IDL, generated builder-based types that do not look like normal
 Kotlin code, and per remote function overhead that includes proto messages and proto-to-domain
-mapping. We did prototype gRPC versions for the smaller applications and the per function
-overhead in gRPC was always the largest of the three frameworks. So we drop gRPC from the main
-comparison and focus on the closer alternative.
+mapping. In shared-codebase setting this proto layer is essentially duplicating domain types that
+are already shared. We did prototype gRPC versions for the smaller applications and the per
+function overhead in gRPC was always the largest of the three frameworks. So we drop gRPC from
+the main comparison and focus on the closer alternative. This is not a statement about gRPC in
+general, it is fully expected that gRPC pays this overhead in shared-codebase setting because the
+setting is not what it is designed for.
 
 Table \ref{features_table} summarizes how the three frameworks compare on the features that
 matter for choosing between them. gRPC and Kotlin RPC look similar on the API style rows: both
@@ -1355,9 +1456,9 @@ Four applications were chosen so that they cover different scenarios. \term{Todo
 CRUD application with four operations and baselines per application setup cost. \term{Rooms
 chat} is a chat with rooms that uses remote classes and peer-to-peer architecture. \term{Social
 platform} is a backend split into ten microservices with thirty-six remote operations to stress
-per microservice overhead and orchestration. \term{CMS} is a content management system with
-hierarchical context tiers and Ktor authentication, designed to exercise the hierarchical
-contexts feature.
+per microservice overhead and orchestration. \term{CMS} is a small content management system
+with four hierarchical context tiers and Ktor authentication, designed to exercise the
+hierarchical contexts feature of Kotlin Remote.
 
 \subsection{Example applications}
 
@@ -1715,12 +1816,28 @@ is one annotation line plus one context line.
 
 \subsection{Limitations}\label{limitations_section}
 
-\subsubsection{Narrow scope of application}
+\subsubsection{Narrow scope of application}\label{narrow_scope_section}
 
-Kotlin Remote is optimized to work in a very specific environment: Kotlin only shared codebase (monolithic)
-projects. It restricts its usability by a very limited number of projects in contrast to Kotlin RPC and
-especially gRPC. This is a drawback inherent in the chosen approach and is dictated by the goal
-of this work. However, we still believe that it is worth mentioning this limitation explicitly. 
+Kotlin Remote is optimized to work in a very specific environment: Kotlin only shared-codebase
+(monolithic) projects. This is the most important limitation of the framework and it is by design.
+Kotlin Remote does not try to be a general purpose RPC framework. It does not support
+cross-language communication, it is not meant for projects in which client and server are developed
+independently in separate codebases, and it is not meant for projects in which client and server
+have separate release cycles. In all of these scenarios general purpose frameworks like gRPC, Ktor
+or Kotlin RPC remain the correct choice and Kotlin Remote should not be considered as their
+replacement.
+
+Several specific consequences follow from this scope decision. First, both client and server have
+to be written in Kotlin. Second, signatures of remote functions are shared between client and
+server through the common code of the project, so a change in remote function signature is a
+compile-time change for both sides at once. There is no notion of versioned API contract that
+clients can be incompatible with, this is left to the project's own release process. Third, the
+framework is not concerned with public-facing API ergonomics (stable URL design, custom HTTP
+headers, status codes), which are important for public REST APIs. Kotlin Remote endpoint is meant
+to be consumed by Kotlin clients from the same project, not by arbitrary third-party clients.
+
+Within this scope Kotlin Remote gives substantial reduction of boilerplate, as shown in the
+previous sections. Outside this scope it is simply the wrong tool.
 
 \subsubsection{Dependency on experimental Kotlin features}
 
@@ -1764,10 +1881,60 @@ natural fit for Kotlin coroutines.
 
 \section{Conclusions}
 
-Summarize the main aspects and results of the research
-project. Provide an answer to the research questions stated earlier.
+In this thesis we developed Kotlin Remote, a lightweight RPC framework specifically for
+shared-codebase Kotlin Multiplatform projects. Kotlin Remote uses Kotlin's experimental context
+parameters feature to express remote calls. Context parameter of remote function carries
+information about target machine, which makes function callable on this machine, and at the same
+time appears in function signature, which makes remote calls clearly visible at the type level.
+This is a departure from the service-oriented RMI model adopted by gRPC and Kotlin RPC, where
+remote calls are hidden behind service interfaces and at the call site look indistinguishable from
+local ones.
 
-(target size: 1/2 page)
+It is important to restate the scope of the work. Kotlin Remote is designed for shared-codebase
+(monolithic) projects in which client and server live in a single Kotlin project, share data
+types and are released together. The framework is not meant to be a general purpose RPC solution
+and does not try to compete with gRPC, Kotlin RPC or Ktor outside of shared-codebase setting.
+Existing RPC frameworks are not boilerplate-heavy in general, their per function overhead is
+small. The service interface they require is a legitimate contract between client and server and
+is essential for cross-language projects, projects with independently developed client and server
+or projects with separately evolving public APIs. In all of these scenarios general purpose
+frameworks remain the correct choice. The contribution of this work is showing that in
+shared-codebase setting this service interface becomes redundant, because the contract is already
+implicit in the shared code, and removing this redundancy gives substantial reduction of code that
+the developer has to write.
+
+The goal of the thesis stated in section \ref{goal_and_objectives_section} was to develop an RPC
+framework for shared-codebase Kotlin Multiplatform projects that reduces boilerplate code compared
+to existing alternatives in this setting. We believe this goal was reached. All four objectives
+were completed. We prototyped RPC framework based on context parameters and extended it with
+support for distributed objects, that is remote classes with state living on remote machine. We
+implemented the framework as Kotlin compiler plugin together with runtime library and tested it.
+We evaluated the framework by comparing it with Kotlin RPC on four example applications of
+different shape and complexity, all built as shared-codebase projects. On the bigger applications,
+like social platform with ten microservices and thirty-six remote operations, Kotlin Remote
+requires roughly forty percent less framework-specific code than Kotlin RPC. On smaller
+applications the two are close, with Kotlin Remote winning by a small margin on the per function
+overhead.
+
+All three technical requirements were met. Any named Kotlin function can be called remotely in
+Kotlin Remote, not only methods of service interfaces. This includes top level functions, extension
+functions, methods of regular classes and companion object methods. Remote functions are
+distinguishable from local ones at the type level by their context parameter of type
+\kotlini{RemoteContext}. Kotlin Multiplatform compatibility is preserved: framework does not rely
+on reflection and works on all KMP targets (JVM, JavaScript, Native, WebAssembly). All the
+metadata needed at runtime is gathered at compile time by the compiler plugin.
+
+Kotlin Remote has limitations that were discussed in section \ref{limitations_section}. The most
+important one is the narrow scope of application described in section \ref{narrow_scope_section}.
+This narrow scope is intentional and follows from the goal of the thesis. Additionally, the
+framework at the moment of writing depends on experimental Kotlin features. Several directions for
+future work were identified during development, including per node code slicing, remote lambdas
+and bidirectional streaming.
+
+We hope Kotlin Remote will be useful for Kotlin developers working on shared-codebase projects who
+want to reduce amount of boilerplate code related to network interactions. For projects outside of
+shared-codebase scope existing general purpose frameworks remain the right choice. Source code of
+the framework together with example applications is available in a public repository.
 
 \newpage
 %\bibliographystyle{unsrt}
@@ -1793,30 +1960,30 @@ how they treated by compiler. Basically suspend function is marking for compiler
 to compile code in a special way, in a CPS style as an automaton. For cps suspend function have 
 to receive additional argument (continuation), thus constraints on the form of suspend function I 
 mentioned previously. We can say that bodies of remote functions are treated differently from the rest 
-of the code. Basically, suspend function can be thought of different programming language inside kotlin,
+of the code. Basically, suspend function can be thought of as a different programming language inside Kotlin,
 at least from the point of view of compiler. 
 
 Suspend keyword mechanism that dictates the shape of remote functions is just a ad-hog embodiment of
-the abstract concept that can be fully expressed changing function return type or signature (adding additional argument). 
+the abstract concept that can be also expressed by changing function return type or signature (adding additional argument). 
 We could return something like deferred, but it would require working with this type in a very explicit fashion, 
 which basically eliminates the whole point of coroutines. Good option for return type is monad, because
-we can work within monad without thinking of monads specific type. In this case reader monad is enough
+we can work within monad without thinking of monad's specific type. In case of coroutines reader monad is enough
 because we already express callCC semantics using automatons and CPS, thus we don't need monad's feature
-to for explicit control flow (like in Cont monad). Reader monad can be expressed using context parameters
+for explicit control flow (like in Cont monad). Reader monad can be expressed using context parameters
 we used for kotlin remote. 
 
-So basically the problem of code coloring is the problem of embedded languages. Because we want to embedd
+So basically the problem of code coloring is the problem of embedded languages. Because we want to embed
 language with its own compilation logic in host language. We are concentrating on embedding functions
-because it's a good separate part of code. With coroutines and kotlin remote language semantics
+because it's a good separate part of code. With coroutines and Kotlin Remote language semantics
 inside suspend or remote function can be fully expressed by rewriting code by the compiler.
 Thus one more restriction on code coloring: function bodies of embedded languages should be compiled to
 host language, in our case kotlin. To make it all easier we used kotlin syntax even for embedded language.
 However, in common case it is not required. With kotlin it is required because there is no way to change
 parsing pass in kotlin compiler, we can only translate one syntactycally correct code to other.
 
-To give shape to colors using type we basically use coeffects as our theoretycal basis.
-In Kotlin common functions are not pure coeffect free at all, they require a lot from theyr evnvironment,
-like a way to run threads. So new "colors" can be introduced to be more restrictive than 
+To give shape to colors using type we basically use coeffects as our theoretical basis.
+In Kotlin common functions are not pure and coeffect free at all, they require a lot from their environment,
+like a way to run threads, for example. So new "colors" can be introduced to be more restrictive than 
 existing functions. In this case we cannot use types for colors, because type can only 
 extend, not restrict capabilities of basic functions. For such restrictive colors we can 
 use special compilation of colored function to basically check that nothing illegal was called from inside of it. 
@@ -1852,13 +2019,14 @@ also can be expressed using type.
 For restrictive colors such "parametrized colors" can also be expressed, using, for example, annotations 
 with parameters.
 
-Code color is a set of functions which bodies are translated during compilation in a special way, 
+At last definition for code color can be given. Code color is a set of functions which bodies are translated (from host language to host language) during compilation in a special way, 
 described by the color. Color consists of translator and a way to mark colored set of functions. Colors
 applies restriction either on from what functions colored function can be called,
 what function can be called from colored ones or both. That depends on the color type.
 
 Colors without translation are coeffect system. Colors without restrictions for colored functions
-are metaprogramming on function level (like rust procedural macros).
+are metaprogramming on function level (like rust procedural macros). So alternative definition for 
+code coloring is coeffect system with metaprogramming on function level.
 
 
 
