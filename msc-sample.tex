@@ -186,6 +186,9 @@ that you want to get answered by your project.
 
 (target size: 1-2 pages)
 
+
+
+
 Nowadays, Kotlin programming language is used frequently for developing software that relies
 heavily on network interactions. Such software includes distributed networks, microservices,
 client-server applications and much more. Usually code base of all such applications can be roughly
@@ -229,6 +232,15 @@ that implicitly passed to the function from the invocation context.
   \item Section 4 evaluates the approach by using small applications and comparing them with standard approaches.
   \item Section 5 concludes, discuss limitations and future work.
 \end{enumerate}
+
+\subsection{Goal}
+
+Goal (honest version)
+
+Investigate how coeffects can be used for remote procedure calls
+
+Investigate whether RPC in the shared-codebase setting can be expressed through coeffects using 
+Kotlin's experimental context parameters feature, instead of the service-oriented model that gRPC and Kotlin RPC adopt, and assess where this approach is preferable and where it is not.
 
 \section{Background and Related work}
 
@@ -1703,46 +1715,12 @@ is one annotation line plus one context line.
 
 \subsection{Limitations}\label{limitations_section}
 
-During development of the example applications several limitations of Kotlin Remote were
-identified. Some of them are related to the early stage of the framework, others are inherent
-to the chosen approach.
+\subsubsection{Narrow scope of application}
 
-\subsubsection{Verbose Ktor wiring}
-
-Kotlin Remote requires more verbose Ktor wiring than Kotlin RPC. On the server side user has to
-install \kotlini{ContentNegotiation} with serializer module built from \ki{genCallableMap()}, in
-addition to installing \kotlini{KRemote} plugin and registering remote routes. On the client
-side \kotlini{ContentNegotiation} has to be installed in \kotlini{HttpClient} with the same
-serializer module. Kotlin RPC hides equivalent work behind \kotlini{install(Krpc)} on the
-server and \kotlini{installKrpc()} on the client. This Ktor wiring is not part of our
-framework code comparison in table \ref{loc_table}, but the user still has to write it.
-\kotlini{RemoteClient.kt} and \kotlini{RemoteServer.kt} files in all our example applications
-are almost identical and could probably be hidden behind a more opinionated default.
-
-\subsubsection{No streaming support} \label{streaming_limitation_section}
-
-Kotlin Remote currently supports only request-response style remote calls. There is no built in
-way to return a stream of values from remote function or to push values from server to client.
-As shown in the rooms chat application, this can be worked around using peer-to-peer remote
-calls, but this is not always desirable because it requires running an embedded server on every
-client. Kotlin RPC supports streaming through Kotlin \kotlini{Flow}. Adding similar support to
-Kotlin Remote is one of the directions for future work.
-
-\subsubsection{Wire protocol coupling to source code}
-
-Remote function in Kotlin Remote is identified on the wire by its fully qualified Kotlin name.
-If user renames remote function, moves it to another package or changes its parameter types,
-all existing clients break. There is no versioning story like in protobuf where fields have
-stable numbers and can be renamed without breaking the wire format. For applications where
-client and server are in the same codebase this is not really a problem because they are always
-built together. For applications where client and server have separate release cycles this can
-be a significant issue.
-
-\subsubsection{No cross-language support}
-
-By design both client and server should be written in Kotlin. This is a conscious trade-off
-because the framework relies on Kotlin compiler plugin to generate everything from source code.
-For polyglot environments gRPC is still a better choice.
+Kotlin Remote is optimized to work in a very specific environment: Kotlin only shared codebase (monolithic)
+projects. It restricts its usability by a very limited number of projects in contrast to Kotlin RPC and
+especially gRPC. This is a drawback inherent in the chosen approach and is dictated by the goal
+of this work. However, we still believe that it is worth mentioning this limitation explicitly. 
 
 \subsubsection{Dependency on experimental Kotlin features}
 
@@ -1750,15 +1728,6 @@ Kotlin Remote uses context parameters which is experimental Kotlin feature at th
 writing. User has to add \texttt{-Xcontext-parameters} compiler flag to enable it and the API
 of context parameters can change in future Kotlin releases. Kotlin Remote also has to be
 updated for every new Kotlin compiler version because the compiler plugin API is not stable.
-
-\subsubsection{Multiple invocations of \kotlini{genCallableMap}}
-
-Looking at \kotlini{RemoteClient.kt} and \kotlini{RemoteServer.kt} of any example application
-one can notice that \kotlini{genCallableMap} is called several times. Each call is replaced at
-compile time with the same map literal which can have hundreds of entries. As a result generated
-code is larger than necessary. Caching of the result on user side is possible but inconvenient
-because \kotlini{genCallableMap} has to be called from different scopes. Compiler plugin could
-deduplicate these calls automatically but this is not implemented yet.
 
 \subsection{Future work}
 
@@ -1792,22 +1761,6 @@ make Kotlin Remote suitable for applications like chats, push notifications and 
 without need to set up peer-to-peer architecture. Bidirectional streaming with backpressure is a
 natural fit for Kotlin coroutines.
 
-\subsubsection{Performance optimizations}
-
-Several performance optimizations are possible. Default parameter values do not have to be
-serialized and sent over the wire if remote side has the same defaults. Generated callable maps
-could share common metadata between functions instead of duplicating it. Wire format could be
-switched from JSON to a more compact binary format like Protocol Buffers or CBOR for cases where
-wire size is important.
-
-\subsubsection{Stub URL validation and security hardening}
-
-Currently when stub of a remote class is sent from machine A to machine B and then to machine C,
-machine C trusts the URL stored in the stub when it sends back lease requests or makes calls to
-the original machine. There is no validation that the URL is legitimate and that the original
-machine actually wanted to expose this stub to machine C. For trusted networks this is fine, but
-for less trusted environments some form of stub signing or capability based access control would
-be needed.
 
 \section{Conclusions}
 
@@ -1823,7 +1776,92 @@ project. Provide an answer to the research questions stated earlier.
 
 \clearpage
 \appendix
-\section{Typesetting Examples}
+\section{Note on Code coloring}
+The idea to use context of the function to determine where it should called comes 
+from so called "code coloring" described in Kotlin KEEP. The term code coloring in the KEEP is
+not introduced formally, instead only intuition, of what code coloring is, is provided using
+examples. Such an intuition cannot be used to reason about "code coloring" in an adequate way.
+
+During work on this thesis better we developed understanding of "code coloring" and 
+in this appendix we want to try to give formal definition for it.
+
+Code coloring consists of two aspects: type system and compiler support. The most
+clean example of code coloring are suspend functions in Kotlin. Functions with "suspend" keyword 
+is basically an extension of Kotlin type system. Suspend function can be called only from other
+suspend functions, that gives a shape to the color. But the gist of suspend functions is
+how they treated by compiler. Basically suspend function is marking for compiler 
+to compile code in a special way, in a CPS style as an automaton. For cps suspend function have 
+to receive additional argument (continuation), thus constraints on the form of suspend function I 
+mentioned previously. We can say that bodies of remote functions are treated differently from the rest 
+of the code. Basically, suspend function can be thought of different programming language inside kotlin,
+at least from the point of view of compiler. 
+
+Suspend keyword mechanism that dictates the shape of remote functions is just a ad-hog embodiment of
+the abstract concept that can be fully expressed changing function return type or signature (adding additional argument). 
+We could return something like deferred, but it would require working with this type in a very explicit fashion, 
+which basically eliminates the whole point of coroutines. Good option for return type is monad, because
+we can work within monad without thinking of monads specific type. In this case reader monad is enough
+because we already express callCC semantics using automatons and CPS, thus we don't need monad's feature
+to for explicit control flow (like in Cont monad). Reader monad can be expressed using context parameters
+we used for kotlin remote. 
+
+So basically the problem of code coloring is the problem of embedded languages. Because we want to embedd
+language with its own compilation logic in host language. We are concentrating on embedding functions
+because it's a good separate part of code. With coroutines and kotlin remote language semantics
+inside suspend or remote function can be fully expressed by rewriting code by the compiler.
+Thus one more restriction on code coloring: function bodies of embedded languages should be compiled to
+host language, in our case kotlin. To make it all easier we used kotlin syntax even for embedded language.
+However, in common case it is not required. With kotlin it is required because there is no way to change
+parsing pass in kotlin compiler, we can only translate one syntactycally correct code to other.
+
+To give shape to colors using type we basically use coeffects as our theoretycal basis.
+In Kotlin common functions are not pure coeffect free at all, they require a lot from theyr evnvironment,
+like a way to run threads. So new "colors" can be introduced to be more restrictive than 
+existing functions. In this case we cannot use types for colors, because type can only 
+extend, not restrict capabilities of basic functions. For such restrictive colors we can 
+use special compilation of colored function to basically check that nothing illegal was called from inside of it. 
+In Kotlin it can be done FIR compiler plugins for the most part.
+
+Where color both extends capabilities of standard functions and restricts them, we 
+can use compiler stage checks together with type system.
+
+So colors are basically function level embedded languages, that use the same syntax as a host language and 
+compiled to the host language. Compilers of such languages are basically translators.
+
+Colors can be more restricted or more permissive than host language. To express more permissive colors 
+that extend basic language we can use types (for example context parameters or monads).
+This is because to enter more permissive area of the language we need something from context,
+coeffect. To express restrictive colors we need to drop some capabilities from context,
+that can be done by compiler checks. For example, we can forbid loops in a certain functions
+to make this function straight line programs. To do that we need to at least forbid calling 
+all the standard functions and allow calling only our marked, restricted functions. Marking 
+can be done using annotations.
+
+In Kotlin we have very powerful instruments to change compilation of certain functions (compiler plugins), 
+but at the same time it very inconvenient. A good example where this process is powerful enough, but 
+a lot more convenient is Rust with its procedural macros metaprogramming.
+
+One more thing to notice is that in Kotlin Remote we basically use "parametrized colors" or "parametrized coeffects"
+(It is not official terms). While suspend function add single color, kotlin remote adds a whole bunch,
+but code translation for everyone of them is the same. The difference is only in what they require from
+environment, what specific coeffect. In our case, remote node url and so on. All the
+coeffects that are required from remote function are in the same group, thus the name 
+"parametrized coeffects". So Kotlin Remote adds strictly speaking a bunch of similar colors, but this
+also can be expressed using type. 
+
+For restrictive colors such "parametrized colors" can also be expressed, using, for example, annotations 
+with parameters.
+
+Code color is a set of functions which bodies are translated during compilation in a special way, 
+described by the color. Color consists of translator and a way to mark colored set of functions. Colors
+applies restriction either on from what functions colored function can be called,
+what function can be called from colored ones or both. That depends on the color type.
+
+Colors without translation are coeffect system. Colors without restrictions for colored functions
+are metaprogramming on function level (like rust procedural macros).
+
+
+
 
 \subsection{Code Fragments}
 
