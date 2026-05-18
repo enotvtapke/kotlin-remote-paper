@@ -158,7 +158,7 @@ declaration then turns into \term{boilerplate code} that exists only because the
 requires it.
 
 In this thesis we developed a new RPC framework for shared-codebase Kotlin projects. We called
-this new framework \term{Kotlin Remote}. Kotlin Remote uses Kotlin's experimental \term{context
+this new framework \term{Kotlin Remote} \cite{enotvtapke_kotlin-remote_2026}. Kotlin Remote uses Kotlin's experimental \term{context
 parameters} feature to express remote calls without service interface declaration. Context
 parameter of remote function carries information about target machine, which makes function
 callable on this machine, and at the same time appears in function signature, which makes remote
@@ -1378,12 +1378,11 @@ To evaluate the framework four example applications were developed using Kotlin 
 rewritten using Kotlin RPC. All four applications follow shared-codebase model: client and server
 parts live in the same Kotlin project and share data types. This is the only setting Kotlin Remote
 is designed for, so the evaluation does not attempt to cover scenarios outside of it (for example,
-separate codebases or cross-language communication). In those scenarios Kotlin Remote is simply not
-applicable and other frameworks should be used. All implementations are functionally equivalent,
+separate codebases or cross-language communication). All implementations are functionally equivalent,
 the only difference is in the way network interactions are organized. As we are interested in
 network code, we will be focusing on it during comparison. Business logic of applications (database
 access, command line user interface, etc.) is roughly the same in all implementations. Source code
-is available at \texttt{integration-tests/} folder of Kotlin Remote repository.
+is available at \texttt{integration-tests} folder of Kotlin Remote repository \cite{enotvtapke_kotlin-remote_2026}.
 
 We compare Kotlin Remote only with Kotlin RPC. The reason is that for shared-codebase Kotlin only
 setting, which is the setting Kotlin Remote targets, gRPC and Kotlin RPC are very close in
@@ -1404,8 +1403,8 @@ Table \ref{features_table} summarizes how the three frameworks compare on the fe
 matter for choosing between them. gRPC and Kotlin RPC look similar on the API style rows: both
 require a service interface declaration, neither makes a remote call visible at the call site,
 neither supports stateful remote objects with framework-managed lifecycle, neither expresses
-hierarchies between services in the type system. They differ on cross-language support, on the
-choice of wire format and on whether the transport is fixed. Kotlin Remote differs from both
+hierarchies between services in the type system. They differ on cross-language support and on 
+whether the transport is fixed. Kotlin Remote differs from both
 alternatives on the API style rows and on the absence of streaming, which it currently does not
 support.
 
@@ -1423,7 +1422,6 @@ support.
 			Streaming                    & Yes                   & Yes (\kotlini{Flow}) & No               \\
 			Kotlin Multiplatform support & Limited               & Yes                  & Yes              \\
 			Cross-language               & Yes                   & No                   & No               \\
-			Separate schema file         & Yes (\texttt{.proto}) & No                   & No               \\
 			Transport                    & HTTP/2 (fixed)        & Pluggable (Ktor)     & Pluggable (Ktor) \\
 			\bottomrule
 		\end{tabular}
@@ -1549,14 +1547,22 @@ microservice, which uses five other microservices to assemble a feed.
   \begin{minted}{kotlin}
   @Remote context(_: RemoteContext<FeedServiceConfig>)
   suspend fun getFeed(userId: Long): List<FeedItem> {
-      val followees = context(FollowServiceConfig.asContext()) { getFollowing(userId) }
+      val followees = context(FollowServiceConfig.asContext()) { 
+        getFollowing(userId) 
+      }
       val posts = followees.flatMap {
           context(PostServiceConfig.asContext()) { listUserPosts(it) }
       }
       return posts.map { p ->
-          val author = context(UserServiceConfig.asContext()) { getUser(p.authorId) }
-          val likes = context(LikeServiceConfig.asContext()) { getPostLikes(p.id) }.size
-          val comments = context(CommentServiceConfig.asContext()) { getPostComments(p.id) }.size
+          val author = context(UserServiceConfig.asContext()) { 
+            getUser(p.authorId) 
+          }
+          val likes = context(LikeServiceConfig.asContext()) { 
+            getPostLikes(p.id) 
+          }.size
+          val comments = context(CommentServiceConfig.asContext()) { 
+            getPostComments(p.id) 
+          }.size
           FeedItem(p, author, likes, comments)
       }
   }
@@ -1564,8 +1570,8 @@ microservice, which uses five other microservices to assemble a feed.
   \caption{Service-to-service orchestration in social platform}\label{social_get_feed}
 \end{listing}
 
-To call a function from another microservice it is enough to wrap the call into
-\kotlini{context(XxxServiceConfig.asContext()) { ... }} block. There are no service stubs to
+To call a function from another microservice it is enough to wrap the call into context block:
+\kotlini{context(XxxServiceConfig.asContext()) { ... }}. There are no service stubs to
 inject, no constructor parameters to thread through and no startup ordering between
 microservices. BFF endpoints have the same shape as \kotlini{getFeed}: switch context to each
 downstream microservice that is needed and assemble the response. In Kotlin RPC version of the
@@ -1690,13 +1696,16 @@ because they determine serialization), framework configuration classes and objec
 \kotlini{registerService} on the server and \kotlini{withService} on the client (the analogs
 of "context object definition" and "context block opening" in Kotlin Remote), context blocks
 and remote calls at the call site, implementation classes that wrap \kotlini{@Rpc} interfaces.
-Pure business logic (function bodies, repositories, data classes, CLI text), Ktor transport
-setup (\kotlini{HttpClient} and \kotlini{embeddedServer} construction, install of generic Ktor
-plugins, routing wrappers, JSON serializer configuration), framework-specific transport-binding
-helpers (\kotlini{install(KRemote)}, \kotlini{install(Krpc)}, \kotlini{rpc("/api")},
-\kotlini{remote("/call")}, \kotlini{rpcConfig}, \kotlini{installKrpc()}), and imports, package
-declarations and empty lines are all excluded. Numbers are approximations because the split
-of some borderline lines is subjective.
+The following code is excluded from our calculation:
+\begin{enumerate}
+	\item Pure business logic (function bodies, repositories, data classes, CLI text)
+	\item Ktor transport setup: \kotlini{HttpClient} and \kotlini{embeddedServer}, installation of
+	      generic Ktor plugins, routing wrappers, JSON serializer configuration
+	\item Framework-specific transport-binding helpers: \kotlini{install(KRemote)}, \kotlini{install(Krpc)},
+	      \kotlini{rpc("/api")}, \kotlini{remote("/call")}, \kotlini{rpcConfig}, \kotlini{installKrpc()}
+	\item Imports, package declarations and empty lines
+\end{enumerate}
+Numbers are approximations because the split of some borderline lines is subjective.
 
 \begin{table}[!h]
   \begin{center}
@@ -1745,15 +1754,6 @@ stub creation (\kotlini{withService} calls) for every dependent microservice, an
 contribute around 43 framework lines compared to zero in Kotlin Remote. Kotlin Remote replaces
 both with one \kotlini{API.kt} file of top level functions plus one \kotlini{Configs.kt} with
 ten \kotlini{RemoteConfig} objects.
-
-It is also worth noticing that Kotlin RPC has a startup ordering constraint that Kotlin Remote
-does not. Stub creation in Kotlin RPC opens a websocket connection immediately
-(\ki{httpClient.rpc { url(...) }} is a suspend function that connects right away), so a
-microservice cannot start before all of its dependencies are already running. The social
-platform launcher in Kotlin RPC has to be split into three phases: first start leaf
-microservices that have no dependencies, then create stubs to them and start orchestrators,
-then create stubs to those and start BFFs. In Kotlin Remote the launcher just starts all ten
-servers in any order because remote calls are made on demand inside individual function calls.
 
 Rooms chat numbers are not directly comparable because the two implementations do different
 things. In Kotlin Remote each user runs its own embedded server and message delivery is done
@@ -1858,7 +1858,6 @@ make Kotlin Remote suitable for applications like chats, push notifications and 
 without need to set up peer-to-peer architecture. Bidirectional streaming with backpressure is a
 natural fit for Kotlin coroutines.
 
-
 \section{Conclusions}
 
 In this thesis we developed Kotlin Remote, a lightweight RPC framework specifically for
@@ -1870,39 +1869,21 @@ This is a departure from the service-oriented RMI model adopted by gRPC and Kotl
 remote calls are hidden behind service interfaces and at the call site look indistinguishable from
 local ones.
 
-It is important to restate the scope of the work. Kotlin Remote is designed for shared-codebase
-(monolithic) projects in which client and server live in a single Kotlin project, share data
-types and are released together. The framework is not meant to be a general purpose RPC solution
-and does not try to compete with gRPC, Kotlin RPC or Ktor outside of shared-codebase setting.
-Existing RPC frameworks are not boilerplate-heavy in general, their per function overhead is
-small. The service interface they require is a legitimate contract between client and server and
-is essential for cross-language projects, projects with independently developed client and server
-or projects with separately evolving public APIs. In all of these scenarios general purpose
-frameworks remain the correct choice. The contribution of this work is showing that in
-shared-codebase setting this service interface becomes redundant, because the contract is already
-implicit in the shared code, and removing this redundancy gives substantial reduction of code that
-the developer has to write.
+Kotlin Remote is designed for shared-codebase (monolithic) projects in which client and server live
+in a single Kotlin project, share data types and are released together. The framework is not meant
+to be a general purpose RPC solution and does not try to compete with gRPC, Kotlin RPC or Ktor
+outside of shared-codebase setting. Existing RPC frameworks are not boilerplate-heavy in general,
+their per function overhead is small. The service interface they require is a legitimate contract
+between client and server and is essential for cross-language projects, projects with independently
+developed client and server or projects with separately evolving public APIs. In all of these
+scenarios general purpose frameworks remain the correct choice. The contribution of this work is
+showing that in shared-codebase setting this service interface becomes redundant, because the
+contract is already implicit in the shared code, and removing this redundancy gives substantial
+reduction of code that the developer has to write. 
 
 The goal of the thesis stated in section \ref{goal_and_objectives_section} was to develop an RPC
 framework for shared-codebase Kotlin Multiplatform projects that reduces boilerplate code compared
-to existing alternatives in this setting. We believe this goal was reached. All four objectives
-were completed. We prototyped RPC framework based on context parameters and extended it with
-support for distributed objects, that is remote classes with state living on remote machine. We
-implemented the framework as Kotlin compiler plugin together with runtime library and tested it.
-We evaluated the framework by comparing it with Kotlin RPC on four example applications of
-different shape and complexity, all built as shared-codebase projects. On the bigger applications,
-like social platform with ten microservices and thirty-six remote operations, Kotlin Remote
-requires roughly forty percent less framework-specific code than Kotlin RPC. On smaller
-applications the two are close, with Kotlin Remote winning by a small margin on the per function
-overhead.
-
-All three technical requirements were met. Any named Kotlin function can be called remotely in
-Kotlin Remote, not only methods of service interfaces. This includes top level functions, extension
-functions, methods of regular classes and companion object methods. Remote functions are
-distinguishable from local ones at the type level by their context parameter of type
-\kotlini{RemoteContext}. Kotlin Multiplatform compatibility is preserved: framework does not rely
-on reflection and works on all KMP targets (JVM, JavaScript, Native, WebAssembly). All the
-metadata needed at runtime is gathered at compile time by the compiler plugin.
+to existing alternatives in this setting. We believe this goal was reached.
 
 Kotlin Remote has limitations that were discussed in section \ref{limitations_section}. The most
 important one is the narrow scope of application described in section \ref{narrow_scope_section}.
@@ -1919,42 +1900,48 @@ and bidirectional streaming.
 \clearpage
 \appendix
 \section{Note on Code coloring}
-The idea to use context of the function to determine where it should called comes 
-from so called "code coloring" described in Kotlin KEEP. The term code coloring in the KEEP is
-not introduced formally, instead only intuition, of what code coloring is, is provided using
-examples. Such an intuition cannot be used to reason about "code coloring" in an adequate way.
+The idea to use context of the function to determine where it should be called comes from so called
+"code coloring" described in Kotlin KEEP \cite{noauthor_keepnotescode-coloringmd_nodate}. The term
+code coloring in the KEEP is not introduced formally, instead only intuition, of what code coloring
+is, is provided using examples. Such an intuition cannot be used to reason about "code coloring" 
+from theoretical point of view.
 
-During work on this thesis better we developed understanding of "code coloring" and 
-in this appendix we want to try to give formal definition for it.
+During work on this thesis we developed better understanding of "code coloring" and 
+in this appendix we want to try to give formal definition of it.
 
 Code coloring consists of two aspects: type system and compiler support. The most
-clean example of code coloring are suspend functions in Kotlin. Functions with "suspend" keyword 
-is basically an extension of Kotlin type system. Suspend function can be called only from other
+clean example of code coloring are suspend functions in Kotlin. Functions with \ki{suspend} keyword 
+are basically an extension of Kotlin type system. Suspend function can be called only from other
 suspend functions, that gives a shape to the color. But the gist of suspend functions is
-how they treated by compiler. Basically suspend function is marking for compiler 
-to compile code in a special way, in a CPS style as an automaton. For cps suspend function have 
-to receive additional argument (continuation), thus constraints on the form of suspend function I 
-mentioned previously. We can say that bodies of remote functions are treated differently from the rest 
-of the code. Basically, suspend function can be thought of as a different programming language inside Kotlin,
-at least from the point of view of compiler. 
+how they are treated by compiler. Basically suspend function is a mark for the compiler 
+to compile code of the function in a special way, in a CPS style as an automaton. For CPS suspend functions have 
+to receive additional argument, continuation, thus constraints on the form of suspend functions I 
+mentioned previously. We can say that bodies of suspend functions are treated differently from the rest 
+of the code. Basically, we can think about suspend functions as a separate programming language embedded in
+Kotlin, at least compiler treats bodies of suspend functions this way. 
 
-Suspend keyword mechanism that dictates the shape of remote functions is just a ad-hog embodiment of
-the abstract concept that can be also expressed by changing function return type or signature (adding additional argument). 
-We could return something like deferred, but it would require working with this type in a very explicit fashion, 
-which basically eliminates the whole point of coroutines. Good option for return type is monad, because
-we can work within monad without thinking of monad's specific type. In case of coroutines reader monad is enough
-because we already express callCC semantics using automatons and CPS, thus we don't need monad's feature
-for explicit control flow (like in Cont monad). Reader monad can be expressed using context parameters
-we used for kotlin remote. 
+Suspend keyword mechanism that dictates the shape of suspend functions can be also expressed by
+requiring suspend functions to have specific signatures, like having specific return type or
+additional argument. And this is exactly what suspend functions do under the hood: accepting
+additional continuation argument. We could return something like Deferred from suspend functions,
+but it would require working with this type in a very explicit fashion, which basically eliminates
+the whole point of suspend functions in Kotlin. Good option for return type in languages with
+do-notations (like Haskell) is monad, because with do-notation we can work within monad without
+thinking of monad's specific type. In case of coroutines reader monad is enough because we already
+express callCC semantics using automatons and CPS, thus we don't need monad's feature for explicit
+control flow (like in Cont monad). Reader monad can be expressed using context parameters we used
+for Kotlin remote.
 
-So basically the problem of code coloring is the problem of embedded languages. Because we want to embed
-language with its own compilation logic in host language. We are concentrating on embedding functions
-because it's a good separate part of code. With coroutines and Kotlin Remote language semantics
-inside suspend or remote function can be fully expressed by rewriting code by the compiler.
-Thus one more restriction on code coloring: function bodies of embedded languages should be compiled to
-host language, in our case kotlin. To make it all easier we used kotlin syntax even for embedded language.
-However, in common case it is not required. With kotlin it is required because there is no way to change
-parsing pass in kotlin compiler, we can only translate one syntactycally correct code to other.
+So basically the problem of code coloring is the problem of embedded languages, because we want to
+embed language with its own compilation logic in host language. We are concentrating on embedding
+functions because it's a good separate part of code. With coroutines and Kotlin Remote language
+semantics inside suspend or remote function can be fully expressed by rewriting code by the
+compiler (from Kotlin to Kotlin). Thus we can apply one more restriction on code coloring:
+languages are embedded on the level of functions, which bodies should be compiled to host language,
+in our case Kotlin. To make it all easier we used Kotlin syntax even for embedded language.
+However, in common case it is not required. With Kotlin it is required because there is no way to
+change parsing pass in Kotlin compiler, we can only translate one syntactically correct code to
+another.
 
 To give shape to colors using type we basically use coeffects as our theoretical basis.
 In Kotlin common functions are not pure and coeffect free at all, they require a lot from their environment,
@@ -1994,57 +1981,15 @@ also can be expressed using type.
 For restrictive colors such "parametrized colors" can also be expressed, using, for example, annotations 
 with parameters.
 
-At last definition for code color can be given. Code color is a set of functions which bodies are translated (from host language to host language) during compilation in a special way, 
-described by the color. Color consists of translator and a way to mark colored set of functions. Colors
-applies restriction either on from what functions colored function can be called,
-what function can be called from colored ones or both. That depends on the color type.
+At last definition for code color can be given. \term{Code color} --- is a set of functions which
+bodies are translated (from host language to host language) during compilation in a special way,
+described by the color. Color consists of translator and a rules to describe colored set of
+functions. Rules consist of functions that entry a set. Colors applies restriction either on from
+what functions colored function can be called, what function can be called from colored ones or
+both. That depends on the color type.
 
 Colors without translation are coeffect system. Colors without restrictions for colored functions
-are metaprogramming on function level (like rust procedural macros). So alternative definition for 
-code coloring is coeffect system with metaprogramming on function level.
-
-
-
-
-\subsection{Code Fragments}
-
-\begin{minted}{rust}
-fn num_to_ordinal_expr(x: u32) -> String {
-    format!("{}{}", x, match (x % 10, x % 100) {
-        (1, 1) | (1, 21...91) => "st", 
-        (2, 2) | (2, 22...92) => "nd", 
-        (3, 3) | (3, 23...93) => "rd", 
-        _ => "th" 
-    }) 
-} 
-\end{minted}
-
-\subsection{Tables}
-
-\begin{table}[ht]
-  \begin{center}
-    \begin{tabular}{cl}
-      \toprule
-      Number & Description \\
-      \midrule
-      7 & A lucky number in Western culture \\
-      8 & A lucky number in Chinese and other Asian cultures \\
-      42 & Answer to the ultimate question of life, the universe, and everything \\
-      404 & Not found \\
-      \bottomrule
-    \end{tabular}
-    \caption{Useless insights I gained with no further meaning}
-  \end{center}
-\end{table}
-
-\subsection{Plots}
-
-\begin{figure}[ht]
-  \begin{center}
-    \includegraphics[width=.8\textwidth]{msc-plot}
-  \end{center}
-  \caption{Many dots distributed over a two dimensional unit space
-    without any discernible pattern or deeper meaning}
-\end{figure}
+are metaprogramming on function level (like Rust procedural macros). So alternative definition for 
+\term{code coloring} --- coeffect system with metaprogramming on function level.
 
 \end{document}
