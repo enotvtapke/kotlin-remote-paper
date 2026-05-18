@@ -278,30 +278,19 @@ To reach this goal we set the following objectives:
         remote calls.
   \item Prototype support for distributed objects, that is classes with state that lives on
         remote machine.
-  \item Implement and test the framework as a Kotlin compiler plugin together with a runtime
+  \item Implement the framework as a Kotlin compiler plugin together with a runtime
         library.
-  \item Evaluate the result by comparing it with existing alternatives in terms of boilerplate
-        code.
-\end{enumerate}
-
-Implementation of the framework should satisfy the following technical requirements:
-\begin{enumerate}
-  \item Any named Kotlin function should be callable remotely, not only methods of service
-        interfaces. This includes top level functions, extension functions and methods of
-        regular classes.
-  \item Remote functions should be distinguishable from local ones at the type level, so
-        developer always knows when network call is happening.
-  \item Kotlin Multiplatform compatibility should be preserved, which means framework has to
-        work on all KMP targets (JVM, JavaScript, Native, WebAssembly) without relying on
-        reflection.
+  \item Evaluate the result by comparing example projects written using developed framework with 
+        alternatives.
 \end{enumerate}
 
 \textbf{This work has the following structure:}
 \begin{enumerate}
   \item Section 2 reviews background and related work on organizing network interactions both in Kotlin ecosystem and outside that.
   \item Section 3 describes architecture of the developed framework.
-  \item Section 4 evaluates the framework by using small applications and comparing them with standard approaches.
-  \item Section 5 concludes, discusses limitations and future work.
+  \item Section 4 evaluates the framework by using small applications and comparing them with standard approaches; 
+    discusses limitations and future work.
+  \item Section 5 concludes.
 \end{enumerate}
 
 \section{Background and Related work}
@@ -671,13 +660,6 @@ in section \ref{client-section}.
 
 
 \section{Kotlin Remote Implementation}
-
-This is the technical core of the thesis. Here you lay out your how
-you answered your research question, you specify your design of
-experiments or simulations, point out difficulties that you
-encountered, etc.
-
-(target size: 5-10 pages)
 
 Framework that was developed in thesis is called \term{Kotlin Remote}. And from now on we will refer 
 to that this way. 
@@ -1428,28 +1410,25 @@ alternatives on the API style rows and on the absence of streaming, which it cur
 support.
 
 \begin{table}[!h]
-  \begin{center}
-    \begin{tabular}{lccc}
-      \toprule
-      Feature & gRPC & Kotlin RPC & Kotlin Remote \\
-      \midrule
-      Service interface required & Yes (IDL) & Yes (\kotlini{@Rpc}) & No \\
-      Top level functions can be remote & No & No & Yes \\
-      Remote call visible at call site & No & No & Yes \\
-      Hierarchical context tiers & No & No & Yes \\
-      Stateful remote objects & No & No & Yes \\
-      \midrule
-      Streaming & Yes & Yes (\kotlini{Flow}) & No \\
-      \midrule
-      Kotlin Multiplatform support & Limited & Yes & Yes \\
-      Cross-language & Yes & No & No \\
-      Separate schema file & Yes (\texttt{.proto}) & No & No \\
-      Transport & HTTP/2 (fixed) & Pluggable (Ktor) & Pluggable (Ktor) \\
-      Wire format & Protocol Buffers & \texttt{kotlinx.serialization} & \texttt{kotlinx.serialization} \\
-      \bottomrule
-    \end{tabular}
-    \caption{Feature comparison of three RPC frameworks for Kotlin.}\label{features_table}
-  \end{center}
+	\begin{center}
+		\begin{tabular}{lccc}
+			\toprule
+			Feature                      & gRPC                  & Kotlin RPC           & Kotlin Remote    \\
+			\midrule
+			Service interface required   & Yes (IDL)             & Yes (\kotlini{@Rpc}) & No               \\
+			Top level functions          & No                    & No                   & Yes              \\
+			Call site visibility         & No                    & No                   & Yes              \\
+			Hierarchical context tiers   & No                    & No                   & Yes              \\
+			Stateful remote objects      & No                    & No                   & Yes              \\
+			Streaming                    & Yes                   & Yes (\kotlini{Flow}) & No               \\
+			Kotlin Multiplatform support & Limited               & Yes                  & Yes              \\
+			Cross-language               & Yes                   & No                   & No               \\
+			Separate schema file         & Yes (\texttt{.proto}) & No                   & No               \\
+			Transport                    & HTTP/2 (fixed)        & Pluggable (Ktor)     & Pluggable (Ktor) \\
+			\bottomrule
+		\end{tabular}
+		\caption{Feature comparison of three RPC frameworks for Kotlin.}\label{features_table}
+	\end{center}
 \end{table}
 
 Four applications were chosen so that they cover different scenarios. \term{Todo} is a simple
@@ -1598,23 +1577,23 @@ microservice in Kotlin RPC pays the same cost: \kotlini{@Rpc} interface, impleme
 with four or five stub constructor parameters, launcher that builds the stubs in the right
 order.
 
-Client side benefits from context parameters as well. Listing \ref{social_client} shows the
-test function that exercises the platform. It declares context parameters for all ten services
-in a single \kotlini{context(...)} block on its signature. Inside the function every remote
-call is a plain unqualified function call, no per-call context block and no service stub. In
-Kotlin RPC version the same function takes ten service stubs as parameters and every call goes
-through the corresponding stub.
+Client side benefits from context parameters as well. Listing \ref{social_client} shows the test
+function that exercises the platform. It declares context parameters for all ten services in a
+single \kotlini{context(...)} block on its signature (we omitted some of the declarations). Inside
+the function every remote call is a plain unqualified function call, no per-call context block and
+no service stub. In Kotlin RPC version the same function takes ten service stubs as parameters and
+every call goes through the corresponding stub.
 
 \begin{listing}[!h]
   \begin{minted}{kotlin}
   context(
-      _: RemoteContext<UserServiceConfig>, _: RemoteContext<PostServiceConfig>,
-      _: RemoteContext<FollowServiceConfig>, _: RemoteContext<LikeServiceConfig>,
-      _: RemoteContext<CommentServiceConfig>, _: RemoteContext<NotificationServiceConfig>,
-      _: RemoteContext<FeedServiceConfig>, _: RemoteContext<SearchServiceConfig>,
-      _: RemoteContext<WebBffConfig>, _: RemoteContext<MobileBffConfig>
+      _: RemoteContext<UserServiceConfig>, 
+      _: <PostServiceConfig>,
+      _: RemoteContext<FollowServiceConfig>, 
+      _: RemoteContext<LikeServiceConfig>,
+      ...
   )
-  suspend fun testClient() {
+  suspend fun runTestClient() {
       val alice = register("alice", "pw", "Alice")
       val p1 = createPost(CreatePostDto(alice.id, "Hello #world"))
       likePost(p1.id, alice.id)
@@ -1667,17 +1646,21 @@ moderator-tier and guest-tier functions to remove all articles and comments of a
   \begin{minted}{kotlin}
   @Remote context(_: RemoteContext<ModeratorConfig>)
   suspend fun removeArticleAndComments(id: Long) {
-      val comments = getComments(id)                        // requires GuestConfig
-      comments.forEach { deleteAnyComment(it.id) }          // requires ModeratorConfig
+      val comments = getComments(id) // requires GuestConfig
+      comments.forEach { 
+        deleteAnyComment(it.id)      // requires ModeratorConfig
+        } 
       dep<ArticleRepository>().deleteAny(id)
   }
 
   @Remote context(_: RemoteContext<AdminConfig>)
   suspend fun purgeUser(login: String): Int {
       val articles = dep<ArticleRepository>().byAuthor(login)
-      articles.forEach { removeArticleAndComments(it.id) }  // requires ModeratorConfig
+      articles.forEach { 
+        removeArticleAndComments(it.id) // requires ModeratorConfig
+      }
       val droppedComments = dep<CommentRepository>().deleteByAuthor(login)
-      promoteUser(login, Role.GUEST)                        // requires AdminConfig
+      promoteUser(login, Role.GUEST)    // requires AdminConfig
       return articles.size + droppedComments
   }
   \end{minted}
@@ -1723,8 +1706,8 @@ of some borderline lines is subjective.
       \midrule
       Todo (4 ops) & 20 & 20 & 5 / 5 \\
       Rooms chat$^{\dagger}$ & ${\sim}50$ & ${\sim}35$ & --- \\
-      Social platform (10 microservices, 36 ops) & ${\sim}155$ & ${\sim}245$ & ${\sim}4$ / ${\sim}7$ \\
-      CMS (4 tiers, 14 ops) & ${\sim}75$ & ${\sim}80$ & ${\sim}5$ / ${\sim}6$ \\
+      Social platform (36 remote ops) & ${\sim}155$ & ${\sim}245$ & ${\sim}4$ / ${\sim}7$ \\
+      CMS (14 remote ops) & ${\sim}75$ & ${\sim}80$ & ${\sim}5$ / ${\sim}6$ \\
       \bottomrule
     \end{tabular}
     \caption{Framework-specific code per application. $^{\dagger}$Rooms chat numbers
@@ -1796,7 +1779,8 @@ interface and once as an override in the implementation class. Listing
   // Kotlin Remote: 3 lines, no other file has to be modified
   @Remote
   context(_: RemoteContext<ServerConfig>)
-  suspend fun createTodo(request: CreateTodoRequest): Todo = repository.create(request)
+  suspend fun createTodo(request: CreateTodoRequest): Todo = 
+    repository.create(request)
 
   // Kotlin RPC: signature in @Rpc interface + override in impl class
   interface TodoService {
@@ -1809,10 +1793,6 @@ interface and once as an override in the implementation class. Listing
   \end{minted}
   \caption{Code required for one remote function}\label{per_function_compare}
 \end{listing}
-
-When the function body is a one line delegation to a repository (which is the common case in
-our applications) Kotlin RPC overhead is roughly twice the function body. In Kotlin Remote it
-is one annotation line plus one context line.
 
 \subsection{Limitations}\label{limitations_section}
 
@@ -1930,11 +1910,6 @@ This narrow scope is intentional and follows from the goal of the thesis. Additi
 framework at the moment of writing depends on experimental Kotlin features. Several directions for
 future work were identified during development, including per node code slicing, remote lambdas
 and bidirectional streaming.
-
-We hope Kotlin Remote will be useful for Kotlin developers working on shared-codebase projects who
-want to reduce amount of boilerplate code related to network interactions. For projects outside of
-shared-codebase scope existing general purpose frameworks remain the right choice. Source code of
-the framework together with example applications is available in a public repository.
 
 \newpage
 %\bibliographystyle{unsrt}
