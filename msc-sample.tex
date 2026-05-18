@@ -1357,20 +1357,40 @@ serializers and deserializers for remote classes using contextual serialization 
 
 \subsection{Garbage collection}\label{garbade_collection_section}
 
-Now there is no way to remove remote classes from \ki{RemoteInstancesPool}. This is a serious
-resource leak. To resolve this issue several techniques can be used, including reference counting
-or full-blown distributed garbage collection. But we decided to opt for leasing approach, because
-it is easy, lightweight and durable. Each time stub is deserialized on a machine this machine
-begins sending lease requests to machine where original class of the stub is stored. To determine
-address of the machine where original class is stored \ki{url} field of the stub is used. When
-machine with original class does not get lease requests for specific class for a long time it
-removes this class from \ki{RemoteInstancesPool}. Machine owning a stub stops sending lease
-requests when this stub is garbage collected on the owner machine. To implement that weak
-references are used. These are references that are not taken into account to mark reachable objects
-during garbage collection. This is basically the whole algorithm. The beauty of this approach is
-that when client owning a stub crashes, server is able to remove original class from its pool
-gracefully. Garbage collection is enabled by default, but can be disabled and fine-tuned when needed. 
-Ktor integration provides transport for leases, user can provide its own ways to deliver leases.
+For now we described no way to remove remote classes from \ki{RemoteInstancesPool}. This is a serious
+resource leak: every time a remote class is serialized on the server a new entry is added to the
+pool and it stays there forever. To resolve this issue several techniques can be used, including
+reference counting or full-blown distributed garbage collection. But we decided to opt for leasing
+approach, because it is easy, lightweight and durable. The general idea is that on the server
+every pooled instance has an associated \term{lease} with expiration time. Clients that hold a
+stub for the instance periodically renew this lease. When the lease expires the server removes
+the instance from the pool. The algorithm is similar to the one used in Java RMI distributed
+garbage collection \cite{noauthor_java_nodate}.
+
+On the server side \ki{LeaseManager} keeps current expiration time per instance together with a
+set of client identifiers that currently hold leases on it. The latter is needed because the same
+instance can be referenced from several clients at once. Each renewal pushes the expiration time
+forward, and instance is removed only when none of its clients renews the lease for longer than
+the configured lease duration plus a small grace period for clock skew. A background coroutine
+periodically scans the leases and removes expired entries from \ki{RemoteInstancesPool}. Default
+lease duration is thirty seconds, scan runs every ten seconds.
+
+On the client side tracked stubs are grouped by server URL and renewal requests are batched per
+URL. Each stub is held through a weak reference, so client-side garbage collector is free to
+reclaim it as soon as user code drops it. On every renewal cycle (ten seconds by default, which is
+below the server lease duration so a single missed renewal does not reclaim the instance) tracked
+entries are split into still-reachable and reclaimed, with renewal request sent for the first
+group and release request for the second. Release request lets the server drop the instance
+immediately if no other client holds it.
+
+This gives reasonable behaviour for the usual failure cases for free. When a client crashes its
+lease just expires and the instance is removed. When the server restarts the client receives
+failed identifiers in the renewal response and notifies user code through \ki{onLeaseExpired}
+callback. Transient network errors are absorbed because a missed renewal is retried on the next
+cycle. Garbage collection is enabled by default but can be disabled or fine-tuned through
+\ki{LeaseConfig} and \ki{LeaseRenewalClientConfig}. The leasing layer is transport-agnostic: core
+defines abstract \ki{LeaseClient} interface, Ktor integration provides the default implementation
+with \ki{/lease/renew} and \ki{/lease/release} HTTP routes.
 
 \section{Evaluation of the Kotlin Remote}
 
