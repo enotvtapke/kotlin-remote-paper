@@ -1725,7 +1725,8 @@ The following code is excluded from our calculation:
 	      \kotlini{rpc("/api")}, \kotlini{remote("/call")}, \kotlini{rpcConfig}, \kotlini{installKrpc()}
 	\item Imports, package declarations and empty lines
 \end{enumerate}
-Numbers are approximations because the split of some borderline lines is subjective.
+Counts are produced by feeding the source code of each application to Claude
+Opus~4.7 with the prompt in Appendix~\ref{loc_prompt_appendix}.
 
 \begin{table}[!h]
   \begin{center}
@@ -1733,57 +1734,57 @@ Numbers are approximations because the split of some borderline lines is subject
       \toprule
       Application & Kotlin Remote & Kotlin RPC & Per-op (KR / krpc) \\
       \midrule
-      Todo (4 ops) & 20 & 20 & 5 / 5 \\
-      Rooms chat$^{\dagger}$ & ${\sim}50$ & ${\sim}35$ & --- \\
-      Social platform (36 remote ops) & ${\sim}155$ & ${\sim}245$ & ${\sim}4$ / ${\sim}7$ \\
-      CMS (14 remote ops) & ${\sim}75$ & ${\sim}80$ & ${\sim}5$ / ${\sim}6$ \\
+      Todo (4 ops) & 20 & 17 & 5 / 4 \\
+      Rooms chat$^{\dagger}$ & 51 & 23 & --- \\
+      Social platform (36 remote ops) & 133 & 200 & ${\sim}$ 4 / 6 \\
+      CMS (14 remote ops) & 70 & 70 & 5 / 5 \\
       \bottomrule
     \end{tabular}
-    \caption{Framework-specific code per application. $^{\dagger}$Rooms chat numbers
-    are not directly comparable, see discussion below.}\label{loc_table}
+    \caption{Framework-specific code per application.
+    $^{\dagger}$Rooms chat numbers are not directly comparable, see discussion
+    below.}\label{loc_table}
   \end{center}
 \end{table}
 
-Three patterns emerge from the table. For the Todo application both frameworks use the same
-amount of framework code (20 lines, 5 per operation). Kotlin Remote pays 3 lines per remote
-function (annotation with context parameter, then the suspend function signature on the next
-line, then the function body) while Kotlin RPC pays 2 lines per function (interface signature
-plus impl override) plus around 5 lines per service for scaffolding (\kotlini{@Rpc} interface
-declaration with braces, impl class declaration with \kotlini{:~ServiceName} and braces). For
-one service with four operations these cancel out exactly.
+Three patterns emerge from the table. For the Todo application both frameworks land
+within three lines of each other (20 versus 17). Kotlin Remote pays three lines per
+remote function (annotation with context parameter, then the suspend function signature,
+then the function body if it does not fit on one line) while Kotlin RPC pays roughly two
+lines per function (interface signature plus impl override) plus around five lines per
+service for scaffolding (\kotlini{@Rpc} interface declaration with braces, impl class
+declaration with \kotlini{:~ServiceName} and braces). For one service with four
+operations these almost cancel out.
 
-The CMS application has four tiers and fourteen operations and is essentially tied (around 75
-versus 80). Kotlin Remote has four hierarchical \kotlini{RemoteConfig} interfaces plus four
-session classes, which add up to roughly the same as the four \kotlini{@Rpc} interfaces in
-Kotlin RPC. The hierarchical contexts feature does not by itself shrink the line count, the
-same information about tiers has to be expressed somewhere. What it changes is where the
-information lives: in Kotlin Remote it is in the type system and the compiler enforces it; in
-Kotlin RPC the programmer has to track at every call site which stub to use for which call.
-Cross-tier internal composition is local in Kotlin Remote (calls dispatch their local bodies
-because \kotlini{LocalContext} is a subtype of \kotlini{RemoteContext<X>} for any \kotlini{X}),
-and either makes spurious network calls back to localhost or has to step around the service
-abstraction in Kotlin RPC.
+The CMS application has four tiers and fourteen operations and is exactly tied (70 versus
+70). Kotlin Remote has four hierarchical \kotlini{RemoteConfig} interfaces plus four
+session classes, which adds up to roughly the same as the four \kotlini{@Rpc} interfaces
+plus four impl classes in Kotlin RPC. The hierarchical contexts feature does not by itself
+shrink the line count, the same information about tiers has to be expressed somewhere.
+What it changes is where the information lives: in Kotlin Remote it is in the type system
+and the compiler enforces it; in Kotlin RPC the programmer has to track at every call site
+which stub to use for which call. Cross-tier internal composition is local in Kotlin
+Remote (calls dispatch their local bodies because \kotlini{LocalContext} is a subtype of
+\kotlini{RemoteContext<X>} for any \kotlini{X}), and either makes spurious network calls
+back to localhost or has to step around the service abstraction in Kotlin RPC.
 
-The social platform shows the biggest gap (around 155 versus 245, Kotlin Remote is about 40
-percent less). Per operation that is 4 lines for Kotlin Remote and 7 for Kotlin RPC. Two
-things contribute. First, ten microservices in Kotlin RPC mean ten implementation classes that
-mostly delegate to repositories (around 100 framework lines that do not exist in Kotlin
-Remote). Second, orchestrating microservices like \kotlini{feed} and the BFFs require explicit
-stub creation (\kotlini{withService} calls) for every dependent microservice, and matching
-\kotlini{registerService} calls inside \kotlini{AllLauncher}. The launchers in Kotlin RPC
-contribute around 43 framework lines compared to zero in Kotlin Remote. Kotlin Remote replaces
-both with one \kotlini{API.kt} file of top level functions plus one \kotlini{Configs.kt} with
-ten \kotlini{RemoteConfig} objects.
+The social platform shows the biggest gap (133 versus 200, Kotlin Remote is about a third
+less). Per operation that is roughly 4 lines for Kotlin Remote and 6 for Kotlin RPC. Two
+things contribute. First, ten microservices in Kotlin RPC mean ten implementation classes
+that mostly delegate to repositories. Second, orchestrating microservices like
+\kotlini{feed} and the BFFs require explicit stub creation (\kotlini{withService} calls)
+for every dependent microservice, and matching \kotlini{registerService} calls inside
+\kotlini{AllLauncher}. Kotlin Remote replaces both with one \kotlini{API.kt} file of top
+level functions plus one \kotlini{Configs.kt} with ten \kotlini{RemoteConfig} objects.
 
 Rooms chat numbers are not directly comparable because the two implementations do different
 things. In Kotlin Remote each user runs its own embedded server and message delivery is done
 as a remote call from the central server to the user machine using stored
-\kotlini{RemoteContext} values. In Kotlin RPC the central server keeps a per user mailbox and
-pushes messages over a server side stream (\kotlini{Flow<ChatMessage>}). Kotlin Remote version
-actually has more framework code than Kotlin RPC version (around 50 versus 35) because the
-peer-to-peer design needs two \kotlini{RemoteConfig} classes (one per machine role) plus nine
-\kotlini{@Remote} functions, against Kotlin RPC version's single \kotlini{@Rpc} interface with
-eight methods.
+\kotlini{RemoteContext} values. In Kotlin RPC the central server keeps a per user mailbox
+and pushes messages over a server side stream (\kotlini{Flow<ChatMessage>}). Kotlin Remote
+version has more framework code than Kotlin RPC version (51 versus 23) because the
+peer-to-peer design needs two \kotlini{RemoteConfig} classes (one per machine role) plus
+nine \kotlini{@Remote} functions and a \kotlini{@RemoteSerializable Room} class, against
+Kotlin RPC version's single \kotlini{@Rpc} interface with eight methods.
 
 \subsubsection{Per-function boilerplate overhead}
 
@@ -2173,5 +2174,76 @@ both. That depends on the color type.
 Colors without translation are coeffect system. Colors without restrictions for colored functions
 are metaprogramming on function level (like Rust procedural macros). So alternative definition for 
 \term{code coloring} --- coeffect system with metaprogramming on function level.
+
+\section{LLM prompt used for boilerplate counting}\label{loc_prompt_appendix}
+
+To make the boilerplate counts in Table \ref{loc_table} reproducible we use the prompt
+below with Claude Opus~4.7. Across five independent runs on the same source tree the
+total varies by at most $\pm 5$ lines for the largest application
+(\textit{social platform}) and by less for smaller ones.
+
+\begin{verbatim}
+Count framework-specific lines across every .kt file in the folder
+<placeholder>. A line is framework-specific if it would be absent in
+an equivalent plain in-process Kotlin program that uses the same
+business logic. Sum the per-file counts and output a single integer.
+
+The project uses either Kotlin Remote or Kotlin RPC as its RPC
+framework.
+
+COUNT a line if it contains any of:
+
+Kotlin Remote:
+- An @Remote or @RemoteSerializable annotation.
+- A context(_: RemoteContext<...>) declaration.
+- The signature line of an @Remote-annotated suspend fun. If the
+  signature spans multiple lines (parameters, return type, or = body
+  on a separate line), count each such line. Do NOT count separate
+  body lines of an @Remote function. If the whole body fits on the
+  same line as the signature, count that single line (it counts as
+  the signature itself).
+- Declaration and closing brace of a type that exists only for the
+  framework: a RemoteConfig subtype (interface, object, class), and
+  its override val client member.
+- A context(X.asContext()) { ... } or context(X) { ... } block where
+  X is a RemoteContext. Count the opening line, the closing }, and
+  every call to an @Remote function inside the block.
+- A standalone .asContext() val (e.g. val UserContext =
+  UserConfig.asContext()).
+- A runWith { ... } call on a RemoteConfig.
+
+Kotlin RPC:
+- An @Rpc annotation.
+- Declaration line and closing brace of an @Rpc interface.
+- Each method signature line inside an @Rpc interface.
+- Declaration line and closing brace of a class implementing an @Rpc
+  interface, including framework-mandated constructor parameter lines
+  like coroutineContext.
+- Each override method signature line in that class. Do NOT count
+  separate body lines of these overrides. If the whole body fits on
+  the same line as the signature, count that single line (it counts
+  as the signature itself).
+- A withService<X>() call.
+- A registerService<X> { ... } call.
+
+DO NOT COUNT:
+- Imports, package declarations, blank lines, comment-only lines.
+- Business logic: function bodies that compute, repository code,
+  schema definitions, data classes (including @Serializable DTOs),
+  CLI text, UI or Compose code.
+- Generic Ktor transport setup: HttpClient { ... }, embeddedServer(
+  ...) { ... }, install(...) for generic Ktor plugins
+  (ContentNegotiation, Authentication, StatusPages, CallLogging,
+  Auth), routing { ... }, JSON or SerializersModule configuration,
+  defaultRequest { ... }.
+- Framework transport-binding helpers: install(KRemote),
+  install(Krpc), rpc("/api"), remote("/call"), rpcConfig,
+  installKrpc(), leaseRoutes, and the bodies of helper functions
+  named remoteEmbeddedServer, remoteClient, rpcHttpClient, rpcConn
+  that abstract Ktor configuration.
+
+Output exactly one integer: the total count across all files in the
+folder. Output nothing else.
+\end{verbatim}
 
 \end{document}
