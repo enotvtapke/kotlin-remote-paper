@@ -147,8 +147,7 @@ Date, Signature
 
 A large subset of modern software for Kotlin and Kotlin Multiplatform (KMP) uses network
 interactions extensively. Backend microservices, client-server applications and distributed
-systems are typical examples. Many such projects follow \term{shared-codebase} (also called
-\term{monolithic}) model in which client and server live in a single Kotlin project and share
+systems are typical examples. Many such projects follow \term{shared-codebase} model in which client and server live in a single Kotlin project and share
 data types and parts of business logic. Existing RPC frameworks for Kotlin like gRPC and Kotlin
 RPC are not boilerplate-heavy in general. However, they all require developer to describe remote
 functions in a separate service interface. This interface plays the role of a contract between
@@ -159,11 +158,12 @@ declaration then turns into \term{boilerplate code} that exists only because the
 requires it.
 
 In this thesis we developed a new RPC framework for shared-codebase Kotlin projects. We called
-this new framework \term{Kotlin Remote} \cite{enotvtapke_kotlin-remote_2026}. Kotlin Remote uses Kotlin's experimental \term{context
-parameters} feature to express remote calls without service interface declaration. Context
-parameter of remote function carries information about target machine, which makes function
-callable on this machine, and at the same time appears in function signature, which makes remote
-calls clearly visible at the type level.
+this new framework \term{Kotlin Remote} \cite{enotvtapke_kotlin-remote_2026}. Kotlin Remote uses
+Kotlin's experimental \term{context parameters} feature to express remote calls without a service
+interface declaration. The context parameter of a remote function carries information about the
+target machine, which makes the function callable on that machine, and at the same time appears
+in the function signature, which makes the remoteness of the function explicit at the
+declaration level.
 
 Kotlin Remote is intentionally scoped to the shared-codebase case. It does not try to compete
 with general purpose RPC frameworks like gRPC or Kotlin RPC outside this scope. In particular,
@@ -187,13 +187,12 @@ scope.
 
 Nowadays, Kotlin programming language is used frequently for developing software that relies
 heavily on network interactions. Such software includes backend microservices, client-server
-applications and distributed systems. Many of these projects follow \term{shared-codebase} (also
-called \term{monolithic}) model in which client and server live in a single Kotlin project and
-share data types and parts of business logic. By shared-codebase project we mean a project where
-all the parts that communicate over the network are developed together, compiled together and
-released together. This is the setting this thesis is concerned with. The opposite setting, in
-which client and server are developed independently, often in different languages, by different
-teams, is out of scope.
+applications and distributed systems. Many of these projects follow \term{shared-codebase} model in
+which client and server live in a single Kotlin project and share data types and parts of business
+logic. By shared-codebase project we mean a project where all the parts that communicate over the
+network are developed together, compiled together and released together. This is the setting this
+thesis is concerned with. The opposite setting, in which client and server are developed
+independently, often in different languages, by different teams, is out of scope.
 
 Usually code base of shared-codebase applications can be roughly separated into two parts:
 part responsible for actual business logic and part responsible for network interactions. While
@@ -255,16 +254,18 @@ generality (cross-language support, public-facing API ergonomics, separate evolu
 server) the framework can give substantial reduction of boilerplate inside its target scope.
 
 To achieve this goal we took a look at RPC in Kotlin from another perspective not common for
-object-oriented languages. In this paper we explore using \term{coeffects}, a concept from the
-world of functional programming, to implement RPC framework that requires to write much less
-boilerplate code than more traditional RPC frameworks in shared-codebase setting. More than that,
-this approach makes network code easily distinguishable from the rest of the program. In Kotlin
-programming with coeffects can be expressed by using experimental language feature called
-\term{context parameters}, which allows function to have several receiver parameters that are
-implicitly passed to the function from the invocation context. We use context parameters to carry
-information about target machine. Such context parameter appears in remote function signature,
-which makes remote calls clearly visible at the type level, and at the same time is resolved
-automatically at the call site, so caller does not have to pass it manually.
+object-oriented languages. In this thesis we draw inspiration from \term{coeffects}, a concept
+from the world of functional programming that captures what a computation requires from its
+environment to be executed. We do not use coeffects in their formal sense, that is, we do not
+build on the indexed-comonad calculus of Petricek et al.~\cite{petricek_coeffects_2013}; we
+borrow only the informal point of view that "needing a way to reach a remote machine" is a
+property of a function that belongs in its type. In Kotlin this point of view is naturally
+expressed using an experimental language feature called \term{context parameters}, which allows
+a function to have several receiver parameters that are implicitly passed to the function from
+the invocation context. We use context parameters to carry information about the target machine.
+Such a context parameter appears in the remote function signature, which makes remoteness
+visible on the function declaration, and at the same time is resolved automatically at the call
+site, so the caller does not have to pass it manually.
 
 \subsection{Goal and objectives} \label{goal_and_objectives_section}
 
@@ -296,14 +297,16 @@ To reach this goal we set the following objectives:
 
 \section{Background and Related work}
 
-This section gives an overview of RPC in general and the specific frameworks used in
-Kotlin to organize network interactions: gRPC, Kotlin RPC and Ktor. REST is covered
-briefly because it is the other family of network technologies widely used in Kotlin
-projects. The section then turns to ideas from functional programming that underlie
-Kotlin Remote: coeffects, implicit parameters and multi-tier
-programming languages. Finally it introduces the Kotlin ecosystem features the
-framework relies on, including coroutines, Kotlin Multiplatform, kotlinx.serialization
-and the experimental context parameters feature.
+This section first introduces RPC in general and the related notion of distributed
+objects. REST is then covered briefly because it is the other major family of network
+technologies used in Kotlin. The section then turns to the two RPC frameworks that are
+the main points of reference throughout the thesis, gRPC and Kotlin RPC. Next it
+introduces the ideas from functional programming that inspire the design of Kotlin
+Remote: coeffects, implicit parameters, the Servant RPC framework for Haskell as a
+concrete example, and multi-tier programming languages. Finally it introduces the
+Kotlin ecosystem features the framework relies on, including coroutines, Kotlin
+Multiplatform, kotlinx.serialization, Ktor and the experimental context parameters
+feature.
 
 \subsection{RPC}
 
@@ -323,11 +326,16 @@ network details and more about core logic of the application.
 The idea of RPC is not new and dates back 1970s \cite{white_high-level_1976} with enterprise 
 implementations appearing roughly in the 1980s \cite{birrell_implementing_1984}.
 
-It is worth noticing that RPC paradigm has been criticized for trying to hide the complexities of
-network communication from the developer, which can lead to wrong assumptions about latency and
-failure modes of remote calls \cite{tanenbaum_critique_nodate}. We are aware of this criticism
-and as it will be shown later, our framework allows to make remote calls visible at the call site
-on a type level, while still keeping the boilerplate small.
+It is worth noticing that the RPC paradigm has been criticized for trying to hide the
+complexities of network communication from the developer, which can lead to wrong assumptions
+about latency and failure modes of remote calls \cite{tanenbaum_critique_nodate}. We are aware of
+this criticism. As it will be shown later, our framework does not fully eliminate it, since the
+remote call expression itself looks the same as a local call. It does, however, push the relevant
+information into two visible places: the remote function declaration (the context parameter is
+part of its signature) and the enclosing \kotlini{context(...)} block at the call site (which has
+to be opened explicitly to satisfy that requirement). The developer therefore cannot accidentally
+write a remote call without acknowledging, at the type level, both that it is remote and which
+remote target it talks to.
 
 \subsection{Distributed Objects}
 
@@ -441,10 +449,10 @@ remote function has to be a method of some service and remote calls are not visi
 site. Just like gRPC, Kotlin RPC is essentially an RMI framework which is not the only viable
 approach for Kotlin.
 
-\subsection{Coeffects}
+\subsection{Coeffects}\label{coeffects-section}
 
-Approach used in Kotlin Remote framework is heavily inspired by ideas from the world of functional
-programming. Specifically by the concept of \term{coeffects}
+The approach used in Kotlin Remote framework is heavily inspired by ideas from the world of
+functional programming, specifically by the concept of \term{coeffects}
 \cite{petricek_coeffects_2013}\cite{noauthor_coeffects_nodate}.
 
 \makedefinition{Coeffect}{property of a computation that describes what this computation requires
@@ -460,19 +468,21 @@ liveness analysis, implicit parameters and dataflow caching under one umbrella. 
 foundation of coeffects relies on indexed comonads, but in practice coeffects can be expressed
 using more familiar language constructs.
 
-It is useful to look closer at duality between effects and coeffects. Effects in their
+It is useful to look closer at the duality between effects and coeffects. Effects in their
 modern form are usually expressed via \term{algebraic effects} \cite{plotkin_handlers_2009} and
-\term{effect handlers}. Algebraic effects describe operations that computation can perform on its
-environment (like throwing an exception, reading from a file or sending a network request) and
-effect handlers describe how exactly these operations should be interpreted. Languages like Koka
-\cite{leijen_koka_nodate} put algebraic effects in the heart of their type system. The duality is
-the following: effects describe what computation does to the environment and how this is
-interpreted, while coeffects describe what computation requires from the environment and how this
-requirement is satisfied. In the context of this thesis remote call can be seen both as an effect
-(it performs network IO) and as a coeffect (it requires a way to reach remote machine). In
-Kotlin Remote we focus on the coeffect side of remote calls, because it allows us to express
-remote calls as a normal Kotlin functions with implicit context parameter, without introducing
-any special effect system.
+\term{effect handlers}. Algebraic effects describe operations that a computation can perform on
+its environment (like throwing an exception, reading from a file or sending a network request)
+and effect handlers describe how these operations should be interpreted. Languages like Koka
+\cite{leijen_koka_nodate} make algebraic effects central to their type system. The duality is
+the following: effects describe what a computation does to the environment and how this is
+interpreted, while coeffects describe what a computation requires from the environment and how
+this requirement is satisfied. A remote call can be viewed both as an effect (it performs network
+I/O) and as a coeffect (it requires a way to reach the remote machine). Kotlin Remote takes the
+coeffect view, but only informally: we do not introduce an effect system or any of the
+comonadic machinery of \cite{petricek_coeffects_2013}. We borrow only the design intuition that
+the requirement "I need a way to reach the remote machine" should be a part of the function
+type, and rely on the existing Kotlin context-parameter feature to make this requirement
+explicit.
 
 The most well-known practical encodings of coeffects in functional languages are \term{implicit
 parameters} \cite{lewis_implicit_2000} and \term{Reader monad}. Implicit parameters are parameters
@@ -481,23 +491,59 @@ from the surrounding context. Reader monad threads read-only environment through
 way that does not require explicitly passing it to every function. From the user point of view both
 mechanisms allow expressing context-dependence of a computation in a type-checked way.
 
-Reader monad is used by RPC framework called Servant \cite{noauthor_servant_nodate} for
-Haskell programming language to implement remote calls. In Servant remote functions return value
-wrapped into \mintinline{haskell}{ClientM} which is basically Reader monad providing remote
-configuration. Concrete server is provided to remote functions by
-\mintinline{haskell}{runClientM} function. This makes remote calls in Servant clearly remote on a
-type level, allows top level functions to be remote and there is no need to declare interface for
-remote functions. Detailed example of Servant usage is presented later in section
-\ref{client-section}.
+The Reader monad is used by an RPC framework called Servant \cite{noauthor_servant_nodate} for
+the Haskell programming language to implement remote calls. Figure \ref{servant_remote_call}
+shows a small Servant client.
 
-The same principle, when applied to Kotlin, gives us framework that is presented in this thesis.
-The role of Reader monad or Haskell-style implicit parameters in Kotlin Remote is played by Kotlin
-\term{context parameters}, which are described later in section
-\ref{kotlin-context-parameters-section}. Context parameter of remote function expresses a coeffect:
-it states that to execute this function caller has to provide a way to reach remote machine. Such
-coeffect is visible in the function signature and, just like in Servant, can be satisfied either by
-configured remote context (and then remote call is performed) or by local context (and then function
-body is executed locally on the server).
+\begin{figure}[!h]
+  \begin{minted}{haskell}
+  position :: Int -> Int -> ClientM Position
+  hello :: Maybe String -> ClientM HelloMessage
+
+  queries :: ClientM (Position, HelloMessage)
+  queries = do
+    pos <- position 10 10
+    message <- hello (Just "servant")
+    return (pos, message)
+
+  run :: IO ()
+  run = do
+    Right (pos, message) <- runClientM queries ... "localhost"
+    print pos
+    print message
+  \end{minted}
+  \caption{Remote function call in Servant}\label{servant_remote_call}
+\end{figure}
+
+Here \mintinline{haskell}{position} and \mintinline{haskell}{hello} are remote functions and their
+return type is \mintinline{haskell}{ClientM x}, where \mintinline{haskell}{x} is the value the
+function computes and \mintinline{haskell}{ClientM} is a monad. Inside the
+\mintinline{haskell}{queries} function several remote calls are made. The place where information
+about the target machine is provided is \mintinline{haskell}{runClientM queries ... "localhost"}.
+\mintinline{haskell}{ClientM} is essentially a Reader monad: it provides the configuration with
+which remote functions are run.
+
+This functional approach has several properties that contrast with the stub-based OOP approach
+described later. Top level functions can be remote, no interface declaration is needed, every
+remote function is clearly marked as remote at the type level via its
+\mintinline{haskell}{ClientM} return type, and there is no need to construct several stubs to
+call the same function on several target machines: a different configuration is passed to
+\mintinline{haskell}{runClientM} instead. The trade-off is that the code is locked into the
+\mintinline{haskell}{ClientM} monad and has to be lifted in and out of it explicitly, a price
+that Kotlin can largely avoid because context parameters express the same dependence using
+ordinary function syntax. Kotlin Remote is the direct adaptation of this design to Kotlin: where
+Servant uses the Reader monad, Kotlin Remote uses a context parameter; where Servant has
+\mintinline{haskell}{runClientM}, Kotlin Remote has the \kotlini{context(config) { ... }} block.
+
+The same principle, when applied to Kotlin, gives the framework that is presented in this thesis.
+In Kotlin Remote, the analogue of the Reader monad and of Haskell-style implicit parameters is
+Kotlin \term{context parameters}, which are described later in section
+\ref{kotlin-context-parameters-section}. The context parameter of a remote function is a coeffect
+in the informal sense described above: it states that, in order to execute this function, the
+caller has to provide a way to reach the remote machine. The requirement is visible in the
+function signature and, just like in Servant, can be satisfied either by a configured remote
+context (and then a remote call is performed) or by a local context (and then the function body
+is executed locally on the server).
 
 \subsection{Multi-tier programming languages}\label{multi-tier-section}
 
@@ -631,17 +677,54 @@ in section \ref{client-section}.
 
 \section{Kotlin Remote Implementation}
 
-Framework that was developed in thesis is called \term{Kotlin Remote}. And from now on we will refer 
-to that this way. 
+This section describes the implementation of the framework developed in this thesis, called
+\term{Kotlin Remote}. The presentation has five parts. First, section
+\ref{module_structure_section} gives a high-level overview of the framework's module structure,
+which is referred to throughout the rest of the section. Second, section
+\ref{remote_functions_section} describes how a single remote function is expressed on the client
+and on the server. The same subsection also explains how the same declaration can be used for
+both roles in a shared codebase via the \kotlini{RemoteContext} type and how subtyping between
+configurations gives rise to hierarchical tiers of capabilities. Third, section
+\ref{remote_functions_code_generation} explains the compiler-plugin code generation that reduces
+the per-function user code, including the \kotlini{@Remote} body transformation and the
+\kotlini{genCallableMap} intrinsic. Fourth, section \ref{exception_handling_section} describes
+how exceptions thrown on the server are propagated to the client. Finally, sections
+\ref{ktor_integration_section} and \ref{remote_classes_section} cover the default Ktor transport
+and the support for stateful remote classes with leased distributed garbage collection.
 
-\subsection{Remote functions}
+\subsection{Module structure}\label{module_structure_section}
 
-Function that can be executed on remote machine (aka remote functions) are the integral part of any 
-RPC framework.
+\begin{figure}[ht]
+  \begin{center}
+    \includegraphics[width=.55\textwidth]{module-graph}
+  \end{center}
+  \caption{Module dependency graph}\label{module_dependency_graph}
+\end{figure}
 
-In order to reason about remote functions two terms should be introduced: client and server.
-In RPC world \term{client} is machine from which remote call is made and \term{server}
-is target machine of this remote call, machine where call is actually executed.
+Figure \ref{module_dependency_graph} shows the Gradle module dependency graph of Kotlin Remote.
+Each rectangle is a Gradle module. The \ki{compiler-plugin} module contains the Kotlin compiler
+plugin that performs all the code generation described later in section
+\ref{remote_functions_code_generation}. The \ki{core-functions} module contains the runtime
+library for remote functions: the \kotlini{RemoteContext} and \kotlini{RemoteConfig} types
+together with the \kotlini{RemoteCall} and \kotlini{RemoteCallable} data structures, plus the
+abstract \kotlini{RemoteClient} interface that decouples the framework from a concrete transport.
+The \ki{core-classes} module sits on top of \ki{core-functions} and adds support for stateful
+remote classes (distributed objects), including the stub mechanism and the leased distributed
+garbage collector described in section \ref{remote_classes_section}. The \ki{core-ktor} module
+provides the default transport implementation. It ships an \kotlini{HttpClient}-based
+\kotlini{RemoteClient} on the client side and a Ktor server-side \kotlini{KRemote} plugin
+together with the lease HTTP routes on the server side. \ki{core-classes} and \ki{core-ktor} are
+independent of each other; an alternative transport can be plugged in by providing a custom
+\kotlini{RemoteClient} without touching either module.
+
+\subsection{Remote functions}\label{remote_functions_section}
+
+A function that can be executed on a remote machine is the central abstraction of any RPC
+framework, and Kotlin Remote is no exception. We will call such a function a
+\term{remote function}. To reason about remote functions, two terms have to be introduced:
+client and server. In the RPC world the \term{client} is the machine from which the remote call
+is made and the \term{server} is the target machine of this remote call, the machine where the
+call is actually executed.
 
 \subsubsection{Client} \label{client-section}
 
@@ -688,60 +771,26 @@ It has some drawbacks:
 
 gRPC uses virtually the same approach as Kotlin RPC but a bit more cumbersome.
 
-But stubs is not the only way to provide remote function with information it needs. Alternative
-approach is used in functional programming. Let us take a look at remote calls in RPC framework for
-Haskell programming language named Servant \cite{noauthor_servant_nodate}.
+Stubs are not the only way to provide a remote function with the information it needs. The
+alternative used in functional programming was described in section \ref{coeffects-section} on
+the example of Servant \cite{noauthor_servant_nodate}: a function expresses its dependence on
+the remote configuration in its type (through the \mintinline{haskell}{ClientM} return type),
+and that configuration is provided at the top of the call chain (through
+\mintinline{haskell}{runClientM}) instead of being baked into a stub. Kotlin Remote takes the
+same approach, with the role of the Reader monad played by Kotlin's experimental \term{context
+parameters} \cite{noauthor_keepproposalskeep-0367-context-parametersmd_nodate} feature: a
+remote function declares a context parameter for the remote configuration, the configuration is
+provided implicitly by an enclosing \kotlini{context(config) { ... }} block, and at every call
+site the dependence is visible at the type level even though the call expression itself looks
+like an ordinary function call.
 
-\begin{figure}[!h]
-  \begin{minted}{haskell}
-  position :: Int -> Int -> ClientM Position
-  hello :: Maybe String -> ClientM HelloMessage
-
-  queries :: ClientM (Position, HelloMessage)
-  queries = do
-    pos <- position 10 10
-    message <- hello (Just "servant")
-    return (pos, message)
-
-  run :: IO ()
-  run = do
-    Right (pos, message) <- runClientM queries ... "localhost"
-    print pos
-    print message
-  \end{minted}
-  \caption{Remote function call in Servant}\label{servant_remote_call}
-\end{figure}
-
-Here \mintinline{haskell}{position} and \mintinline{haskell}{hello} are remote functions. We can see
-their return type is \mintinline{haskell}{ClientM x}, where x is the actual value function compute and
-\mintinline{haskell}{ClientM} is a monad. Inside \mintinline{haskell}{queries} function several calls
-to remote functions are made. The place where information about target machine is provided is actually
-\mintinline{haskell}{runClientM queries ... "localhost"}. \mintinline{haskell}{ClientM} is basically
-a Reader monad, because it provides configuration for remote functions to run.
-
-This functional RPC approach solves some of the problems of OOP approach that uses stubs. Top level 
-functions now can be called, there is no need to declare interface, all the remote functions are
-clearly remote on a type level and there is no need to create several stubs to call the same
-functions on several target machines. Resolution of these problems are important for Kotlin because
-Kotlin is not solely OOP language, it has a lot of attributes of functional and procedure
-languages. So we believe RPC framework for Kotlin will benefit greatly by solving stated problems.
-
-There is an alternative to Reader monad applicable to Kotlin that is called \term{implicit parameters}.
-These are parameters of the function that are resolved from the function invocation context and
-should not be passed explicitly when function is called in contrast to normal parameters. New
-language feature for Kotlin called \term{context parameters}
-\cite{noauthor_keepproposalskeep-0367-context-parametersmd_nodate} is basically implementation of
-implicit parameters for Kotlin. Using this feature it is possible to develop RPC framework for
-Kotlin that uses functional approach to make remote calls. That is exactly what we did in Kotlin
-Remote.
-
-Let us imagine we want to execute some function \kotlini{multiply} remotely. Here is client implementation
-for it in the figure \ref{multiply_client}.
+Let us imagine we want to execute some function \kotlini{multiply} remotely. Here is the client
+implementation for it on figure \ref{multiply_client}.
 
 \begin{figure}[!h]
   \begin{minted}{kotlin}
   fun pass(): Nothing = error("pass")
-  fun multiply(lhs: Long, rhs: Long): Long { pass() }
+  fun multiply(lhs: Long, rhs: Long): Long = pass()
   \end{minted}
   \caption{Client part of multiply function}\label{multiply_client}
 \end{figure}
@@ -915,7 +964,7 @@ Now server can invoke \kotlini{RemoteInvokator} when it receives \kotlini{Remote
 server finds \kotlini{RemoteCallable} in \kotlini{CallableMap} by \kotlini{callableName} from
 \kotlini{RemoteCall}.
 
-\subsubsection{Single codebase}
+\subsubsection{Unified client and server bodies via \texttt{RemoteContext}}
 
 Described methods for creating client and server are not very good, when client and server share
 the same codebase. By that we mean that client and server code is in a single Gradle module. Gradle
@@ -927,10 +976,13 @@ elaborate context parameters. Basically a "switch" between server and client bod
 is needed, and such switch can be encoded using the same context parameter that was used for remote call.
 Take a look at modified version of multiply function in figure \ref{dual_multiply}. \kotlini{RemoteContext}
 is basically a sum of types, it is either \kotlini{LocalContext} or \kotlini{ConfiguredContext}.
-Notice how covariant type parameter \kotlini{T} and type \kotlini{Nothing} are used here. Because 
-\kotlini{Nothing} is a bottom type in Kotlin type system (in other words it is subtype of every type)
-and \kotlini{T} is covariant, \kotlini{LocalContext} is a subtype \kotlini{RemoteContext} for all \kotlini{T}.
-It means that any remote function can be called in a \kotlini{LocalContext}, and it will type check.
+Notice how the covariant type parameter \kotlini{T} and the type \kotlini{Nothing} are used here.
+Because \kotlini{Nothing} is the bottom type in the Kotlin type system (it is a subtype of every
+type) and \kotlini{T} is declaration-site covariant (\kotlini{out T}), \kotlini{LocalContext}
+(which extends \kotlini{RemoteContext<Nothing>}) is a subtype of \kotlini{RemoteContext<T>} for
+every \kotlini{T}. It follows that any remote function declared with
+\kotlini{context(_: RemoteContext<X>)} for any \kotlini{X} can be called in a
+\kotlini{LocalContext}, and the call will type-check.
 When remote function is called in a \kotlini{LocalContext} it will be executed in a current coroutine and will not
 result in a request to the server. Because of that the same function can be called from server in a 
 local context and from client but in configured context.
@@ -954,7 +1006,7 @@ local context and from client but in configured context.
   \caption{Updated multiply}\label{dual_multiply}
 \end{figure}
 
-Now \kotlini{RemoteInvocator} should be changed a bit to reflect this duality of remote functions.
+Now \kotlini{RemoteInvokator} should be changed a bit to reflect this duality of remote functions.
 Added context parameter hints that remote function can be only called locally on a server. Now 
 server have to provide \kotlini{LocalContext} for all the invoker calls. 
 
@@ -965,7 +1017,7 @@ server have to provide \kotlini{LocalContext} for all the invoker calls.
     suspend fun call(parameters: Array<Any?>): Any?
   }
   \end{minted}
-  \caption{Updated RemoteInvocator}\label{updated_remote_invocator}
+  \caption{Updated RemoteInvokator}\label{updated_remote_invokator}
 \end{figure}
 
 \subsubsection{Remote context relations}
@@ -1084,14 +1136,20 @@ function. All the information needed is accessible during compile time. This mea
 generated \ki{genCallableMap} can have lots and lots of entries, because functions from all over the 
 source code are gathered.
 
-It is worth noticing that \ki{genCallableMap} adds to callable map even private, protected and internal
-functions. This means that by using \ki{genCallableMap} it is possible to invoke such functions 
-effectively breaking encapsulation. So it is recommended to keep all the remote functions public. 
-Another quirk about \ki{genCallableMap} is that it will not generate entries from remote functions 
-from dependencies, because source code of dependencies is not accessible (it is already compiled). 
-To alleviate that dependencies can save their callable maps generated by \ki{genCallableMap}, for example,
-in a public static property. This way dependent code can use these saved callable maps by, for example,
-merging them with its own callable map. 
+It is worth noticing that \ki{genCallableMap} adds to the callable map every \ki{@Remote}
+function regardless of its Kotlin visibility, including functions with non-public visibility.
+This means that by using \ki{genCallableMap} it is possible to invoke such functions over the
+network, effectively breaking encapsulation. The implication is that the \ki{@Remote}
+annotation, rather than the Kotlin visibility modifier, is the real boundary of the server's
+network API; we recommend keeping every \ki{@Remote} function \kotlini{public} so the two
+boundaries coincide. The general discussion of this exposure-surface issue and its mitigations
+is deferred to the limitations in section \ref{encapsulation_limitation_section}.
+
+Another quirk about \ki{genCallableMap} is that it will not generate entries from remote
+functions from dependencies, because source code of dependencies is not accessible (it is
+already compiled). To alleviate that, dependencies can save their callable maps generated by
+\ki{genCallableMap}, for example, in a public static property. This way dependent code can use
+these saved callable maps by, for example, merging them with its own callable map.
 
 \begin{figure}[!h]
   \begin{minted}{kotlin}
@@ -1101,7 +1159,7 @@ merging them with its own callable map.
   \caption{genCallableMap function}\label{gen_callable_map}
 \end{figure}
 
-\subsection{Exception handling}
+\subsection{Exception handling}\label{exception_handling_section}
 
 During executing of remote functions on remote machines exceptions can occur. Such erroneous situations
 should be handled by the client that made remote call. Here a tough decision should be made. We basically
@@ -1123,7 +1181,7 @@ a boundary between stack frames from remote machine and local frames.
   fun main() {
     try {
       ServerConfig.runWith { div(10, 0) }
-    } catch (_: ArithmeticException) {
+    } catch (e: ArithmeticException) {
       e.printStackTrace()
     }
   }
@@ -1177,22 +1235,7 @@ to change exceptions. For all other backends exception from remote machine is wr
   \caption{Custom exception registration}\label{custom_exception_registration}
 \end{listing}
 
-\subsection{Module structure}
-
-\begin{figure}[ht]
-  \begin{center}
-    \includegraphics[width=.55\textwidth]{module-graph}
-  \end{center}
-  \caption{Module dependency graph}\label{module_dependency_graph}
-\end{figure}
-
-Now is a good time to take a look at architecture of kotlin-remote framework. At \ref{module_dependency_graph} is shown
-module dependency graph of the framework. Each rectangle is a Gradle module. Before we only described
-\ki{compiler-plugin} and \ki{core-functions} module. But there are two more modules that extend functionality of 
-the mentioned ones. \ki{core-classes} contain support for distributed objects and \ki{core-ktor} provides an 
-implememntation of the transport protocol for Kotlin Remote using Ktor.
-
-\subsection{Ktor integration}
+\subsection{Ktor integration}\label{ktor_integration_section}
 Kotlin Remote is meant to be transport agnostic. This is done by splitting code into three modules:
 \kotlini{core-functions}, \ki{core-classes}, \ki{core-ktor}. Until now, we almost exclusively have
 been discussing \ki{core-functions} module that contains logic related to remote functions. Now let us
@@ -1232,7 +1275,7 @@ of remote call, invokes remote function, serializes and sends result to the clie
   \caption{Authentication support}\label{auth_example}
 \end{listing}
 
-\subsection{Remote classes}
+\subsection{Remote classes}\label{remote_classes_section}
 
 Because Kotlin is not only procedural and functional language but also relies heavily on OOP, it
 was decided to add support to call methods of the classes remotely, not only top-level functions.
@@ -1392,28 +1435,32 @@ setting is not what it is designed for.
 
 Table \ref{features_table} summarizes how the three frameworks compare on the features that
 matter for choosing between them. gRPC and Kotlin RPC look similar on the API style rows: both
-require a service interface declaration, neither makes a remote call visible at the call site,
-neither supports stateful remote objects with framework-managed lifecycle, neither expresses
-hierarchies between services in the type system. They differ on cross-language support and on 
-whether the transport is fixed. Kotlin Remote differs from both
-alternatives on the API style rows and on the absence of streaming, which it currently does not
-support.
+require a service interface declaration, neither marks the remoteness of a function at its call
+site, neither supports stateful remote objects with framework-managed lifecycle, neither
+expresses hierarchies between services in the type system. They differ on cross-language support
+and on whether the transport is fixed. Kotlin Remote differs from both alternatives on the API
+style rows and on the absence of streaming, which it currently does not support. The
+"remoteness marked at call site" row deserves an extra remark: the call expression itself
+(e.g.\ \kotlini{multiply(6, 1)}) syntactically looks the same in all three frameworks; what
+differs in Kotlin Remote is that the call must be lexically enclosed in a matching
+\kotlini{context(config) { ... }} block to type-check, so the call site is at least surrounded
+by an explicit marker, even if the call itself is not.
 
 \begin{table}[!h]
 	\begin{center}
 		\begin{tabular}{lccc}
 			\toprule
-			Feature                      & gRPC                  & Kotlin RPC           & Kotlin Remote    \\
+			Feature                                 & gRPC                  & Kotlin RPC           & Kotlin Remote        \\
 			\midrule
-			Service interface required   & Yes (IDL)             & Yes (\kotlini{@Rpc}) & No               \\
-			Top level functions          & No                    & No                   & Yes              \\
-			Call site visibility         & No                    & No                   & Yes              \\
-			Hierarchical context tiers   & No                    & No                   & Yes              \\
-			Stateful remote objects      & No                    & No                   & Yes              \\
-			Streaming                    & Yes                   & Yes (\kotlini{Flow}) & No               \\
-			Kotlin Multiplatform support & Limited               & Yes                  & Yes              \\
-			Cross-language               & Yes                   & No                   & No               \\
-			Transport                    & HTTP/2 (fixed)        & Pluggable (Ktor)     & Pluggable (Ktor) \\
+			Service interface required              & Yes (IDL)             & Yes (\kotlini{@Rpc}) & No                   \\
+			Top level functions                     & No                    & No                   & Yes                  \\
+			Remoteness marked at call site          & No                    & No                   & Enclosing \kotlini{context} block \\
+			Hierarchical context tiers              & No                    & No                   & Yes                  \\
+			Stateful remote objects                 & No                    & No                   & Yes                  \\
+			Streaming                               & Yes                   & Yes (\kotlini{Flow}) & No                   \\
+			Kotlin Multiplatform support            & Limited               & Yes                  & Yes                  \\
+			Cross-language                          & Yes                   & No                   & No                   \\
+			Transport                               & HTTP/2 (fixed)        & Pluggable (Ktor)     & Pluggable (Ktor)     \\
 			\bottomrule
 		\end{tabular}
 		\caption{Feature comparison of three RPC frameworks for Kotlin.}\label{features_table}
@@ -1432,7 +1479,7 @@ hierarchical contexts feature of Kotlin Remote.
 
 \subsubsection{Todo application}
 
-This is the smallest of the three applications. It allows user to create, update, delete and list
+This is the smallest of the four applications. It allows the user to create, update, delete and list
 todo items. State is persisted in H2 database accessed via Exposed ORM. Server exposes only four
 remote functions and these functions are top level functions, they are not methods of any class.
 Listing \ref{todo_api} shows the entire remote API of the Todo application written using Kotlin
@@ -1518,7 +1565,7 @@ configuration is just a value that can be passed around.
 
 \subsubsection{Social platform} \label{social_app_section}
 
-A small social network backend split into eight microservices: \kotlini{users}, \kotlini{posts},
+A small social network backend split into 10 microservices: \kotlini{users}, \kotlini{posts},
 \kotlini{comments}, \kotlini{likes}, \kotlini{follows}, \kotlini{feed},
 \kotlini{notifications} and \kotlini{search}. On top of these two Backend-for-Frontend
 microservices are added: \kotlini{webBff} returns rich aggregated objects for a desktop browser,
@@ -1585,7 +1632,7 @@ every call goes through the corresponding stub.
   \begin{minted}{kotlin}
   context(
       _: RemoteContext<UserServiceConfig>, 
-      _: <PostServiceConfig>,
+      _: RemoteContext<PostServiceConfig>,
       _: RemoteContext<FollowServiceConfig>, 
       _: RemoteContext<LikeServiceConfig>,
       ...
@@ -1638,6 +1685,10 @@ the user's credentials.
 Hierarchical contexts show their value in cross-tier internal composition. Listing
 \ref{cms_purge_user} shows the admin-tier \kotlini{purgeUser} function which transitively calls
 moderator-tier and guest-tier functions to remove all articles and comments of a banned user.
+Helper \kotlini{dep<T>()} in the listing is a thin wrapper over Koin
+\cite{noauthor_koin_nodate} that resolves a repository instance from the server's dependency
+injection container; it is unrelated to Kotlin Remote itself and is shown only so that the
+function bodies are realistic.
 
 \begin{listing}[!h]
   \begin{minted}{kotlin}
@@ -1980,7 +2031,7 @@ WebSocket transport, which is a transport-level rather than framework-level diff
 \subsubsection{Narrow scope of application}\label{narrow_scope_section}
 
 Kotlin Remote is optimized to work in a very specific environment: Kotlin only shared-codebase
-(monolithic) projects. This is the most important limitation of the framework and it is by design.
+projects. This is the most important limitation of the framework and it is by design.
 Kotlin Remote does not try to be a general purpose RPC framework. It does not support
 cross-language communication, it is not meant for projects in which client and server are developed
 independently in separate codebases, and it is not meant for projects in which client and server
@@ -2006,6 +2057,32 @@ Kotlin Remote uses context parameters which is experimental Kotlin feature at th
 writing. User has to add \texttt{-Xcontext-parameters} compiler flag to enable it and the API
 of context parameters can change in future Kotlin releases. Kotlin Remote also has to be
 updated for every new Kotlin compiler version because the compiler plugin API is not stable.
+
+\subsubsection{Encapsulation and exposure surface}\label{encapsulation_limitation_section}
+
+The \ki{genCallableMap} intrinsic described in section \ref{callable_map_generation} collects
+every function in the compilation unit annotated with \ki{@Remote} into the map that the server
+uses to dispatch incoming calls. The collection step does not filter by Kotlin visibility
+modifiers, so a function annotated with \ki{@Remote} becomes callable over the network even if
+its Kotlin visibility is lower than \kotlini{public}. This breaks the usual expectation that
+lower visibility implies a smaller exposure surface: as soon as a function is annotated, it is
+part of the public network API of the server regardless of how it is declared in Kotlin source.
+
+The actual gate is the \ki{@Remote} annotation itself rather than Kotlin visibility. This gate
+is currently a single-bit decision (annotated or not) without any finer-grained access control.
+In particular, the framework does not provide a built-in mechanism to restrict which clients
+can call which remote functions; the CMS example in section \ref{cms_app_section} uses Ktor's
+basic authentication and HTTP routing for that, but this is enforced by Ktor configuration on
+top of Kotlin Remote, not by the framework itself. Production deployments must therefore treat
+every \ki{@Remote} function as part of the public surface of the server and apply transport-level
+authentication and authorization explicitly.
+
+A natural mitigation is for the user to keep every \ki{@Remote} function \kotlini{public}, so
+that Kotlin visibility matches the runtime exposure, and to reserve unexposed helpers for
+non-annotated functions; we recommend this convention. A more rigorous solution would be for the
+frontend compiler plugin to either forbid lower-than-\kotlini{public} visibility on \ki{@Remote}
+declarations, or to integrate with a per-function authorization scheme. Both are left to future
+work.
 
 \subsection{Future work}
 
@@ -2045,24 +2122,59 @@ In this thesis we developed Kotlin Remote, an RPC framework for shared-codebase 
 Multiplatform projects. The framework uses Kotlin's experimental context parameters feature
 to express remote calls. A context parameter of a remote function carries information about
 the target machine, which makes the function callable on that machine, and at the same time
-appears in the function signature, which makes remote calls visible at the type level. This
-is a departure from the service-oriented RMI model adopted by gRPC and Kotlin RPC, where
-remote calls are hidden behind service interfaces and at the call site look identical to
-local ones.
+appears in the function signature, which makes the remoteness of the function explicit at the
+declaration level and forces every call site to be lexically enclosed in a matching
+\kotlini{context(...)} block. This is a departure from the service-oriented RMI model adopted
+by gRPC and Kotlin RPC, where remoteness is hidden behind service interfaces and at the call
+site is completely indistinguishable from a local call.
 
-We evaluated the framework on four applications, each implemented twice (once with Kotlin
-Remote and once with Kotlin RPC). On shared-codebase projects with multiple microservices
-that orchestrate each other (the shape of the social platform from
-section~\ref{social_app_section}) Kotlin Remote reduces boilerplate compared to Kotlin
-RPC, and framework-overhead benchmarks show that this reduction does not come at the cost
-of runtime performance. The goal of the thesis stated in
-section~\ref{goal_and_objectives_section} was therefore reached.
+The four objectives stated in section~\ref{goal_and_objectives_section} were addressed as
+follows. The first objective, to prototype an RPC framework based on context parameters, is
+realized by the \ki{core-functions} module and the \kotlini{@Remote} surface API described in
+section~\ref{remote_functions_section}. The second objective, to prototype support for
+distributed objects, is realized by the \ki{core-classes} module: it contains both the
+\kotlini{@RemoteSerializable} stub mechanism (section~\ref{remote_classes_section}) and the
+leased distributed garbage collector (section~\ref{garbade_collection_section}). The third
+objective, to implement the framework as a Kotlin compiler plugin together with a runtime
+library, is realized by the \ki{compiler-plugin} module (section
+\ref{remote_functions_code_generation}) together with the three runtime modules
+\ki{core-functions}, \ki{core-classes} and \ki{core-ktor}
+(section~\ref{module_structure_section}). The fourth objective, to evaluate the result on
+example projects, is realized by the four applications of section~\ref{boilerplate_section}
+together with the deterministic line-report compiler pass.
+
+The evaluation gives a more nuanced answer to the main research question than a single number.
+On the two larger applications, the social platform with ten microservices
+(section~\ref{social_app_section}) and the CMS with four hierarchical capability tiers
+(section~\ref{cms_app_section}), Kotlin Remote reduces framework-specific code by
+approximately 43\% and 30\% respectively compared to Kotlin RPC. On the smallest application,
+Todo (four remote functions invoked from a desktop UI), Kotlin Remote produces \emph{more}
+framework-specific code than Kotlin RPC (39 vs 19 lines): the per-function cost of Kotlin
+Remote is still smaller, but the per-call-site cost of opening a \kotlini{context(...)} block
+dominates when the same small set of remote functions is invoked from many UI handlers. Rooms
+chat is not directly comparable because the two implementations make architecturally different
+choices (peer-to-peer remote calls vs server-pushed \kotlini{Flow}). The honest summary is that
+Kotlin Remote reduces boilerplate when the number of remote functions and/or the number of
+distinct remote targets grows past the per-call-site overhead, which happens early in projects
+with multiple microservices or tiers, and never happens for tiny APIs with many call sites. The
+framework-overhead benchmarks of section~\ref{per_call_latency_section} show that this
+boilerplate reduction does not come at the cost of runtime performance. Local dispatch of a
+\kotlini{@Remote} function in \kotlini{LocalContext} costs 6.7 ns above a plain suspend call
+(section \ref{local_dispatch_section}) and per-function bytecode is within 12\% of Kotlin RPC
+(section \ref{growth_study_section}). The per-call latency gap on the default Ktor HTTP
+transport is a transport-level rather than a framework-level cost. The goal of the thesis
+stated in section~\ref{goal_and_objectives_section} is therefore reached for the class of
+applications it was designed for, while we deliberately do not claim that Kotlin Remote is a
+better choice for every shared-codebase project.
 
 Kotlin Remote has limitations discussed in section \ref{limitations_section}. The most
 important one is the narrow scope of application described in section
-\ref{narrow_scope_section}. The framework also depends on experimental Kotlin features.
-Several directions for future work were identified during development, including per
-node code slicing, remote lambdas and bidirectional streaming.
+\ref{narrow_scope_section}. The framework also depends on experimental Kotlin features
+and currently treats every \kotlini{@Remote} function as part of the server's public network
+surface regardless of its Kotlin visibility, as discussed in
+section~\ref{encapsulation_limitation_section}. Several directions for future work were
+identified during development, including per node code slicing, remote lambdas and
+bidirectional streaming.
 
 \newpage
 %\bibliographystyle{unsrt}
@@ -2070,98 +2182,5 @@ node code slicing, remote lambdas and bidirectional streaming.
 \printbibliography
 
 \clearpage
-\appendix
-\section{Note on Code coloring}
-The idea to use context of the function to determine where it should be called comes from so called
-"code coloring" described in Kotlin KEEP \cite{noauthor_keepnotescode-coloringmd_nodate}. The term
-code coloring in the KEEP is not introduced formally, instead only intuition, of what code coloring
-is, is provided using examples. Such an intuition cannot be used to reason about "code coloring" 
-from theoretical point of view.
-
-During work on this thesis we developed better understanding of "code coloring" and 
-in this appendix we want to try to give formal definition of it.
-
-Code coloring consists of two aspects: type system and compiler support. The most
-clean example of code coloring are suspend functions in Kotlin. Functions with \ki{suspend} keyword 
-are basically an extension of Kotlin type system. Suspend function can be called only from other
-suspend functions, that gives a shape to the color. But the gist of suspend functions is
-how they are treated by compiler. Basically suspend function is a mark for the compiler 
-to compile code of the function in a special way, in a CPS style as an automaton. For CPS suspend functions have 
-to receive additional argument, continuation, thus constraints on the form of suspend functions I 
-mentioned previously. We can say that bodies of suspend functions are treated differently from the rest 
-of the code. Basically, we can think about suspend functions as a separate programming language embedded in
-Kotlin, at least compiler treats bodies of suspend functions this way. 
-
-Suspend keyword mechanism that dictates the shape of suspend functions can be also expressed by
-requiring suspend functions to have specific signatures, like having specific return type or
-additional argument. And this is exactly what suspend functions do under the hood: accepting
-additional continuation argument. We could return something like Deferred from suspend functions,
-but it would require working with this type in a very explicit fashion, which basically eliminates
-the whole point of suspend functions in Kotlin. Good option for return type in languages with
-do-notations (like Haskell) is monad, because with do-notation we can work within monad without
-thinking of monad's specific type. In case of coroutines reader monad is enough because we already
-express callCC semantics using automatons and CPS, thus we don't need monad's feature for explicit
-control flow (like in Cont monad). Reader monad can be expressed using context parameters we used
-for Kotlin remote.
-
-So basically the problem of code coloring is the problem of embedded languages, because we want to
-embed language with its own compilation logic in host language. We are concentrating on embedding
-functions because it's a good separate part of code. With coroutines and Kotlin Remote language
-semantics inside suspend or remote function can be fully expressed by rewriting code by the
-compiler (from Kotlin to Kotlin). Thus we can apply one more restriction on code coloring:
-languages are embedded on the level of functions, which bodies should be compiled to host language,
-in our case Kotlin. To make it all easier we used Kotlin syntax even for embedded language.
-However, in common case it is not required. With Kotlin it is required because there is no way to
-change parsing pass in Kotlin compiler, we can only translate one syntactically correct code to
-another.
-
-To give shape to colors using type we basically use coeffects as our theoretical basis.
-In Kotlin common functions are not pure and coeffect free at all, they require a lot from their environment,
-like a way to run threads, for example. So new "colors" can be introduced to be more restrictive than 
-existing functions. In this case we cannot use types for colors, because type can only 
-extend, not restrict capabilities of basic functions. For such restrictive colors we can 
-use special compilation of colored function to basically check that nothing illegal was called from inside of it. 
-In Kotlin it can be done FIR compiler plugins for the most part.
-
-Where color both extends capabilities of standard functions and restricts them, we 
-can use compiler stage checks together with type system.
-
-So colors are basically function level embedded languages, that use the same syntax as a host language and 
-compiled to the host language. Compilers of such languages are basically translators.
-
-Colors can be more restricted or more permissive than host language. To express more permissive colors 
-that extend basic language we can use types (for example context parameters or monads).
-This is because to enter more permissive area of the language we need something from context,
-coeffect. To express restrictive colors we need to drop some capabilities from context,
-that can be done by compiler checks. For example, we can forbid loops in a certain functions
-to make this function straight line programs. To do that we need to at least forbid calling 
-all the standard functions and allow calling only our marked, restricted functions. Marking 
-can be done using annotations.
-
-In Kotlin we have very powerful instruments to change compilation of certain functions (compiler plugins), 
-but at the same time it very inconvenient. A good example where this process is powerful enough, but 
-a lot more convenient is Rust with its procedural macros metaprogramming.
-
-One more thing to notice is that in Kotlin Remote we basically use "parametrized colors" or "parametrized coeffects"
-(It is not official terms). While suspend function add single color, kotlin remote adds a whole bunch,
-but code translation for everyone of them is the same. The difference is only in what they require from
-environment, what specific coeffect. In our case, remote node url and so on. All the
-coeffects that are required from remote function are in the same group, thus the name 
-"parametrized coeffects". So Kotlin Remote adds strictly speaking a bunch of similar colors, but this
-also can be expressed using type. 
-
-For restrictive colors such "parametrized colors" can also be expressed, using, for example, annotations 
-with parameters.
-
-At last definition for code color can be given. \term{Code color} --- is a set of functions which
-bodies are translated (from host language to host language) during compilation in a special way,
-described by the color. Color consists of translator and a rules to describe colored set of
-functions. Rules consist of functions that entry a set. Colors applies restriction either on from
-what functions colored function can be called, what function can be called from colored ones or
-both. That depends on the color type.
-
-Colors without translation are coeffect system. Colors without restrictions for colored functions
-are metaprogramming on function level (like Rust procedural macros). So alternative definition for 
-\term{code coloring} --- coeffect system with metaprogramming on function level.
 
 \end{document}
