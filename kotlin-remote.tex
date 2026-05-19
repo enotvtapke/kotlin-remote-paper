@@ -136,6 +136,14 @@ zur Verwendung oder Vervielfältigung.
 Diese Arbeit wurde noch keiner anderen Prüfungsbehörde vorgelegt
 noch wurde sie bisher veröffentlicht.
 
+\subsection*{Disclosure of AI Use}
+During the preparation of this master's thesis, artificial intelligence tools were utilized as
+supplementary aids in the writing process. Specifically, AI was used to generate illustrative
+examples and to assist in drafting descriptions for certain sections of the research and
+methodology to enhance clarity. All AI-assisted content was thoroughly reviewed, critically
+evaluated, and significantly edited by the author to ensure accuracy, originality, and alignment
+with academic standards.
+
 \vspace{20mm}
 
 \dotfill\\
@@ -149,7 +157,7 @@ A large subset of modern software for Kotlin and Kotlin Multiplatform (KMP) uses
 interactions extensively. Backend microservices, client-server applications and distributed
 systems are typical examples. Many such projects follow \term{shared-codebase} model in which client and server live in a single Kotlin project and share
 data types and parts of business logic. Existing RPC frameworks for Kotlin like gRPC and Kotlin
-RPC are not boilerplate-heavy in general. However, they all require developer to describe remote
+require developer to describe remote
 functions in a separate service interface. This interface plays the role of a contract between
 client and server, which is necessary when client and server are developed independently. In
 shared-codebase setting this contract becomes redundant, because client and server already share
@@ -241,7 +249,7 @@ Existing RPC frameworks have a few other drawbacks in a shared-codebase setting 
 same root cause. Top level functions cannot be remote at all; every remote function has to be a
 method of some service. At the call site a remote call looks identical to a local one; there is
 nothing in the syntax that tells the developer that this is a network operation that might be slow or
-fail. The approach follows a strict OOP style which is not the only viable option for Kotlin. These
+fail. Existing approaches follows a strict OOP style which is not the only viable option for Kotlin. These
 design choices make sense for gRPC and Kotlin RPC because they are general purpose frameworks
 aiming at a much wider scope than shared-codebase projects. The same design choices are precisely
 what makes them carry redundant declarations in a shared-codebase setting.
@@ -531,9 +539,9 @@ call the same function on several target machines: a different configuration is 
 \mintinline{haskell}{runClientM} instead. The trade-off is that the code is locked into the
 \mintinline{haskell}{ClientM} monad and has to be lifted in and out of it explicitly, a price
 that Kotlin can largely avoid because context parameters express the same dependence using
-ordinary function syntax. Kotlin Remote is the direct adaptation of this design to Kotlin: where
-Servant uses the Reader monad, Kotlin Remote uses a context parameter; where Servant has
-\mintinline{haskell}{runClientM}, Kotlin Remote has the \kotlini{context(config) { ... }} block.
+ordinary function syntax. Kotlin Remote uses similar design: where Servant uses the Reader monad,
+Kotlin Remote uses a context parameter; where Servant has \mintinline{haskell}{runClientM}, Kotlin
+Remote has the \kotlini{context(config) { ... }} block.
 
 The same principle, when applied to Kotlin, gives the framework that is presented in this thesis.
 In Kotlin Remote, the analogue of the Reader monad and of Haskell-style implicit parameters is
@@ -1453,17 +1461,17 @@ by an explicit marker, even if the call itself is not.
 	\begin{center}
 		\begin{tabular}{lccc}
 			\toprule
-			Feature                                 & gRPC                  & Kotlin RPC           & Kotlin Remote        \\
+			Feature                        & gRPC           & Kotlin RPC           & Kotlin Remote               \\
 			\midrule
-			Service interface required              & Yes (IDL)             & Yes (\kotlini{@Rpc}) & No                   \\
-			Top level functions                     & No                    & No                   & Yes                  \\
-			Remoteness marked at call site          & No                    & No                   & Enclosing \kotlini{context} block \\
-			Hierarchical context tiers              & No                    & No                   & Yes                  \\
-			Stateful remote objects                 & No                    & No                   & Yes                  \\
-			Streaming                               & Yes                   & Yes (\kotlini{Flow}) & No                   \\
-			Kotlin Multiplatform support            & Limited               & Yes                  & Yes                  \\
-			Cross-language                          & Yes                   & No                   & No                   \\
-			Transport                               & HTTP/2 (fixed)        & Pluggable (Ktor)     & Pluggable (Ktor)     \\
+			Service interface required     & Yes (IDL)      & Yes (\kotlini{@Rpc}) & No                          \\
+			Top level functions            & No             & No                   & Yes                         \\
+			Remoteness marked at call site & No             & No                   & enclosing \kotlini{context} \\
+			Hierarchical context tiers     & No             & No                   & Yes                         \\
+			Stateful remote objects        & No             & No                   & Yes                         \\
+			Streaming                      & Yes            & Yes (\kotlini{Flow}) & No                          \\
+			Kotlin Multiplatform support   & Limited        & Yes                  & Yes                         \\
+			Cross-language                 & Yes            & No                   & No                          \\
+			Transport                      & HTTP/2 (fixed) & Pluggable (Ktor)     & Pluggable (Ktor)            \\
 			\bottomrule
 		\end{tabular}
 		\caption{Feature comparison of three RPC frameworks for Kotlin.}\label{features_table}
@@ -1765,7 +1773,7 @@ listing every framework-specific source line together with the category that tag
 Lines tagged by more than one category (e.g. an \kotlini{@Remote} annotation that lives on
 the same line as a context parameter) are deduplicated, so the totals shown below count
 each physical line at most once. A single Gradle task,
-\texttt{./gradlew :integration-tests:lineReports}, compiles every measured module with the
+\texttt{./gradlew lineReports}, from inside \texttt{integration-tests} directory compiles every measured module with the
 pass enabled and prints the side-by-side comparison; the underlying JSON files contain the
 exact line numbers in each \texttt{.kt} file that contributed to the total, so the count
 is fully auditable.
