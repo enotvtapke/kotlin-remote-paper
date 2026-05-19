@@ -1784,30 +1784,30 @@ is fully auditable.
       \toprule
       Application & Kotlin Remote & Kotlin RPC & Per-op (KR / krpc) \\
       \midrule
-      Todo (4 ops)                    &  39 &  19 & ${\sim}$ 10 / 5 \\
+      Todo (4 ops)                    &  25 &  25 & ${\sim}$ 6 / 6 \\
       Social platform (36 remote ops) & 150 & 265 & ${\sim}$ 4 / 7 \\
       CMS (14 remote ops)             &  72 & 103 & ${\sim}$ 5 / 7 \\
       \bottomrule
     \end{tabular}
-    \caption{Framework-specific code per application, as reported by the deterministic
-    line-report pass. Rooms chat is excluded because the Kotlin Remote and Kotlin RPC
-    versions of the application are architecturally different (peer-to-peer remote calls
-    versus server-pushed \kotlini{Flow}); see discussion below.}\label{loc_table}
+    \caption{Framework-specific code per application. Rooms chat is excluded; see discussion below.}\label{loc_table}
   \end{center}
 \end{table}
 
-Three patterns emerge from the table. For the Todo application Kotlin Remote pays
-\emph{more} framework-specific lines than Kotlin RPC (39 versus 19). The reason is
-the desktop client built on top of the four remote functions: every UI button handler
-opens a fresh \kotlini{context(ServerConfig.asContext()) { ... }} block around one or
-two remote calls, which adds an opening line, a closing brace and the call lines per
-handler. The Kotlin RPC version creates one \kotlini{TodoService} stub at startup and
-calls methods on it directly, so each UI handler is a single line. Per operation in
-isolation Kotlin Remote is still cheaper (one annotation plus one context-parameter line
-plus the signature, versus one method signature in the \kotlini{@Rpc} interface plus one
-override in the impl class plus interface and impl scaffolding); the gap reverses on Todo
-because the cost of context blocks at \emph{call sites} dominates when the same small set
-of remote functions is invoked from many call sites.
+Three patterns emerge from the table. For the Todo application the two frameworks
+produce exactly the same number of framework-specific lines (25 versus 25). The reason
+is that there is simply too little network code in the application for the structural
+differences between Kotlin Remote and Kotlin RPC to register as a gap. Todo exposes
+four remote functions consumed from one desktop UI through one server, and on each side
+the costs cancel almost line for line: Kotlin Remote pays around three lines per
+function (the \kotlini{@Remote} annotation, the \kotlini{context(...)} declaration and
+the suspend function signature) plus a small \kotlini{RemoteConfig} object, while Kotlin
+RPC pays roughly two lines per function spread across an \kotlini{@Rpc} interface and a
+matching implementation class plus a few lines of fixed scaffolding for those two types.
+With only four remote operations there is not enough material for either pattern to
+compound. The UI side of the comparison is identical: both clients open one
+service handle at startup and make nine direct remote calls from inside their UI
+handlers. We therefore read this as a baseline result, not a win or a loss for either
+framework: very small APIs are too small to choose a framework over.
 
 The CMS application has four tiers and fourteen remote operations. Kotlin Remote uses
 about 30\% fewer framework-specific lines than Kotlin RPC (72 versus 103), and
@@ -2141,17 +2141,19 @@ On the two larger applications, the social platform with ten microservices
 (section~\ref{social_app_section}) and the CMS with four hierarchical capability tiers
 (section~\ref{cms_app_section}), Kotlin Remote reduces framework-specific code by
 approximately 43\% and 30\% respectively compared to Kotlin RPC. On the smallest application,
-Todo (four remote functions invoked from a desktop UI), Kotlin Remote produces \emph{more}
-framework-specific code than Kotlin RPC (39 vs 19 lines): the per-function cost of Kotlin
-Remote is still smaller, but the per-call-site cost of opening a \kotlini{context(...)} block
-dominates when the same small set of remote functions is invoked from many UI handlers. Rooms
-chat is not directly comparable because the two implementations make architecturally different
-choices (peer-to-peer remote calls vs server-pushed \kotlini{Flow}). The honest summary is that
-Kotlin Remote reduces boilerplate when the number of remote functions and/or the number of
-distinct remote targets grows past the per-call-site overhead, which happens early in projects
-with multiple microservices or tiers, and never happens for tiny APIs with many call sites. The
-framework-overhead benchmarks of section~\ref{per_call_latency_section} show that this
-boilerplate reduction does not come at the cost of runtime performance. Local dispatch of a
+Todo (four remote functions invoked from a desktop UI), the two frameworks tie at the same
+line count (25 vs 25): the application has too little network code for the structural
+differences between the two frameworks to compound into a measurable gap. Rooms chat is not
+directly comparable because the two implementations make architecturally different choices
+(peer-to-peer remote calls vs server-pushed \kotlini{Flow}). The honest summary is that
+Kotlin Remote reduces boilerplate once the network surface of an application grows beyond
+a handful of operations on a single service: the difference between paying per remote
+function (Kotlin Remote) and paying per service interface plus implementation class
+(Kotlin RPC) only shows up when there are several services or tiers to express. On a tiny
+API the two frameworks are interchangeable in size; on a project with multiple
+microservices or hierarchical tiers Kotlin Remote wins. The framework-overhead benchmarks
+of section~\ref{per_call_latency_section} show that this boilerplate reduction does not
+come at the cost of runtime performance. Local dispatch of a
 \kotlini{@Remote} function in \kotlini{LocalContext} costs 6.7 ns above a plain suspend call
 (section \ref{local_dispatch_section}) and per-function bytecode is within 12\% of Kotlin RPC
 (section \ref{growth_study_section}). The per-call latency gap on the default Ktor HTTP
@@ -2160,14 +2162,11 @@ stated in section~\ref{goal_and_objectives_section} is therefore reached for the
 applications it was designed for, while we deliberately do not claim that Kotlin Remote is a
 better choice for every shared-codebase project.
 
-Kotlin Remote has limitations discussed in section \ref{limitations_section}. The most
-important one is the narrow scope of application described in section
-\ref{narrow_scope_section}. The framework also depends on experimental Kotlin features
-and currently treats every \kotlini{@Remote} function as part of the server's public network
-surface regardless of its Kotlin visibility, as discussed in
-section~\ref{encapsulation_limitation_section}. Several directions for future work were
-identified during development, including per node code slicing, remote lambdas and
-bidirectional streaming.
+Kotlin Remote has limitations discussed in section \ref{limitations_section}. The most important
+one is the narrow scope of application described in section \ref{narrow_scope_section}. The
+framework also depends on experimental Kotlin features. Several directions for future work were
+identified during development, including per node code slicing, remote lambdas and bidirectional
+streaming.
 
 \newpage
 %\bibliographystyle{unsrt}
