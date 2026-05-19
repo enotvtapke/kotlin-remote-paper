@@ -1707,7 +1707,7 @@ network round trip, so the Kotlin RPC version goes directly to the repositories 
 the moderator and admin implementations, with an explanatory comment. This works but it
 bypasses the service layer.
 
-\subsection{Comparison to Kotlin RPC}
+\subsection{Boilerplate comparison with Kotlin RPC}
 
 Table \ref{loc_table} shows the size of framework-specific code for each application. By
 framework-specific code we mean code that exists only because the project uses this particular
@@ -1785,7 +1785,7 @@ peer-to-peer design needs two \kotlini{RemoteConfig} classes (one per machine ro
 \kotlini{@Remote} functions, against Kotlin RPC version's single \kotlini{@Rpc} interface with
 eight methods.
 
-\subsubsection{Per-function overhead}
+\subsubsection{Per-function boilerplate overhead}
 
 Another way to compare frameworks is to count how much code is needed to add a new remote
 function to existing application. In Kotlin Remote it is just two extra lines: \kotlini{@Remote}
@@ -1813,6 +1813,168 @@ interface and once as an override in the implementation class. Listing
   \end{minted}
   \caption{Code required for one remote function}\label{per_function_compare}
 \end{listing}
+
+\subsection{Performance comparison with Kotlin RPC}
+
+Previous subsections measured user code. Here we measure what the user pays at runtime
+and in compiled artifact for the same boilerplate reduction. We ran four benchmarks
+against Kotlin RPC and a plain Kotlin baseline. Source code is in
+\texttt{integration-tests/bench} and \texttt{integration-tests/growth-bench} modules of
+the Kotlin Remote repository \cite{enotvtapke_kotlin-remote_2026}. Measurements were
+done on Intel Core Ultra~9~185H, Ubuntu~24.04, Temurin~21.0.7, Kotlin~2.2.20, Ktor~3.2.1
+and Kotlin RPC~0.10.1, with server and client running in the same JVM over loopback.
+Per-call benchmarks use 2~000 warmup and 10~000 measured calls. We report median (p50)
+and 99th percentile (p99) latency; p50 reflects typical-case behavior, p99 reflects tail
+behavior. Microbenchmarks use 200~000 warmup and 1~000~000 measured iterations.
+
+\subsubsection{Per-call latency}\label{per_call_latency_section}
+
+Both frameworks use Ktor as the transport, but defaults differ. Kotlin Remote sends one
+HTTP \texttt{POST} per call, Kotlin RPC sends one frame over a persistent WebSocket.
+Table \ref{latency_table} shows round-trip latency for identical operations.
+
+\begin{table}[!h]
+  \begin{center}
+    \begin{tabular}{lrrrr}
+      \toprule
+      Operation                 & KR p50 & KR p99 & Kotlin RPC p50 & Kotlin RPC p99 \\
+      \midrule
+      \kotlini{ping()}          & 438 us & 1076 us & 351 us & 835 us \\
+      \kotlini{echoLong(0)}     & 312 us &  478 us & 298 us & 464 us \\
+      \kotlini{echoString(1B)}  & 312 us &  457 us & 196 us & 342 us \\
+      \kotlini{echoString(1KiB)}& 327 us &  479 us & 213 us & 365 us \\
+      \kotlini{createTodo(req)} & 314 us &  470 us & 195 us & 351 us \\
+      \kotlini{listTodos(100)}  & 393 us &  559 us & 339 us & 498 us \\
+      \bottomrule
+    \end{tabular}
+    \caption{Round-trip latency per call, localhost, 10~000 samples. KR = Kotlin
+    Remote.}\label{latency_table}
+  \end{center}
+\end{table}
+
+The gap stays roughly constant up to 1~KiB payload size, so it is dominated by
+per-request HTTP overhead and not by framework logic. The Kotlin Remote transport is
+pluggable through \kotlini{RemoteClient}, so an HTTP/2 connection-reusing or in-process
+transport would close most of this gap.
+
+\subsubsection{Local dispatch overhead}\label{local_dispatch_section}
+
+In section \ref{client-section} we showed that a \kotlini{@Remote} function dispatched
+in \kotlini{LocalContext} runs locally without a network call. This happens when the
+function executes on the server, or when one tier of the CMS hierarchy calls a lower
+tier internally. Table \ref{local_dispatch_table} compares the same function in three
+configurations.
+
+\begin{table}[!h]
+  \begin{center}
+    \begin{tabular}{lr}
+      \toprule
+      Case & ns per call \\
+      \midrule
+      \kotlini{suspend fun mulPlain(a, b)} & 15.1 \\
+      \kotlini{@Remote suspend fun mulRemote(a, b)} in \kotlini{LocalContext} & 21.8 \\
+      \kotlini{@Remote suspend fun mulRemote(a, b)} in \kotlini{ConfiguredContext} (network) & 470~243 \\
+      \bottomrule
+    \end{tabular}
+    \caption{Cost of dispatching a remote function in each of the three contexts,
+    1~000~000 iterations.}\label{local_dispatch_table}
+  \end{center}
+\end{table}
+
+The overhead in the local case is basically non-existent with one \kotlini{is}-check on the context
+parameter and one call dispatch.
+
+\subsubsection{Distributed garbage collection}\label{dgc_section}
+
+We measured the cost of a single \kotlini{renewLeases} call on the server, the renewal
+request body size, and the memory footprint of a leased instance.
+
+\begin{table}[!h]
+  \begin{center}
+    \begin{tabular}{rrrrr}
+      \toprule
+      $N$ live stubs & renewal time & per id & request body & traffic per minute \\
+      \midrule
+      1       &  0.5 us  & 484 ns &  59 B   &   354 B \\
+      100     &  5.4 us  &  54 ns & 349 B   &  2.0 KiB \\
+      1~000   & 47.8 us  &  48 ns & 3.9 KiB & 23.1 KiB \\
+      10~000  &  412 us  &  41 ns & 48 KiB  &  287 KiB \\
+      100~000 &  4.8 ms  &  48 ns & 575 KiB & 3.4 MiB \\
+      \bottomrule
+    \end{tabular}
+    \caption{Server-side \kotlini{LeaseManager.renewLeases} cost and on-wire size as a
+    function of the number of tracked instances. Default renewal interval is 10~seconds,
+    so each client sends the request six times per minute.}\label{lease_renewal_table}
+  \end{center}
+\end{table}
+
+Renewal cost is linear and basically one synchronized hash-map lookup per id. The
+periodic \kotlini{cleanupExpiredInstances} sweep is about 310~ns per expired id.
+
+Table \ref{lease_memory_table} shows server-side heap occupied by a growing instance
+pool, sampled after a forced garbage collection. Per stub cost includes the user
+object, the entry in \kotlini{RemoteInstancesPool}, the \kotlini{LeaseEntry} record
+and its \kotlini{clientIds} set.
+
+\begin{table}[!h]
+  \begin{center}
+    \begin{tabular}{rrr}
+      \toprule
+      $N$ live stubs & cumulative heap & per stub \\
+      \midrule
+      10~000  &   8.2 MiB & 374 B \\
+      100~000 &  42.1 MiB & 386 B \\
+      500~000 & 197.9 MiB & 399 B \\
+      \bottomrule
+    \end{tabular}
+    \caption{Server-side memory footprint as a function of pool size, sampled after
+    forced GC.}\label{lease_memory_table}
+  \end{center}
+\end{table}
+
+Per stub cost is constant as the pool grows, so server memory scales linearly with the
+number of tracked instances.
+
+\subsubsection{Per-function bytecode footprint}\label{growth_study_section}
+
+Boilerplate reduction from Table \ref{loc_table} measures user code. The complementary
+question is how much bytecode the compiler plugin emits per remote function. We
+generated a single source file with $N$ identical
+\kotlini{@Remote suspend fun fN(x: Long): Long = x} functions for Kotlin Remote, and $N$
+identical methods of one \kotlini{@Rpc} interface for Kotlin RPC. We compiled each to a
+JAR for $N \in \{0, 1, 10, 100, 200, 500, 800, 1000\}$ and measured class file sizes.
+For Kotlin Remote we ran tests with one top level call to \ki{genCallableMap()}.
+
+\begin{table}[!h]
+	\begin{center}
+		\begin{tabular}{lrrr}
+			\toprule
+			Configuration & bytes/function \\
+			\midrule
+			Kotlin Remote & ${\sim}2~190$  \\
+			Kotlin RPC    & ${\sim}2~500$  \\
+			\bottomrule
+		\end{tabular}
+		\caption{Per-function bytecode cost
+			($N \le 500$).}\label{growth_table}
+	\end{center}
+\end{table}
+
+Both frameworks fail to compile at $N = 800$. The failure mode is identical: the static
+initializer where the per-function metadata is emitted exceeds the JVM 64~KiB cap. In
+Kotlin Remote this is the top-level \texttt{Kt} class initializer with the expanded
+\kotlini{genCallableMap()} literal. In Kotlin RPC this is the static initializer of the
+per-interface stub class. This is not a real limit in practice, because a realistic service splits
+its API across several modules or several \kotlini{@Rpc} interfaces.
+
+\subsubsection{Discussion}
+
+The boilerplate reduction reported earlier in this section is not bought by a runtime
+or compiled-size penalty. Local dispatch is basically free, distributed garbage
+collection stays well under a percent of CPU even at hundreds of thousands of live
+references, per-function bytecode is within 12\% of Kotlin RPC, and per-call
+latency on the default Ktor HTTP transport is around 100~us above Kotlin RPC's default
+WebSocket transport, which is a transport-level rather than framework-level difference.
 
 \subsection{Limitations}\label{limitations_section}
 
