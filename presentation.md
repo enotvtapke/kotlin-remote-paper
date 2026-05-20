@@ -39,10 +39,13 @@ style: |
   }
   .columns {
     display: flex;
-    gap: 30px;
+    gap: 5px;
   }
   .columns > div {
     flex: 1;
+  }
+  .comparison {
+    font-size: 0.5em;
   }
   blockquote {
     border-left: 4px solid #4361ee;
@@ -292,40 +295,133 @@ Authentication, logging, CORS, rate limiting — all standard Ktor features work
     <img src="module-graph.svg" alt="Description" width="60%" align="center">
 </center>
 
---- 
+---
 
-# Per-Function Boilerplate Comparison
+# Feature Comparison
 
-What code must be written **for each new remote function**:
+| Feature                        | **gRPC**       | **Kotlin RPC**   | **Kotlin Remote**         |
+| ------------------------------ | -------------- | ---------------- | ------------------------- |
+| Service interface required     | Yes (IDL)      | Yes (`@Rpc`)     | No                        |
+| Top-level functions            | No             | No               | Yes                       |
+| Remoteness marked at call site | No             | No               | Enclosing `context` block |
+| Hierarchical context tiers     | No             | No               | Yes                       |
+| Stateful remote objects        | No             | No               | Yes                       |
+| Streaming                      | Yes            | Yes              | No                        |
+| Kotlin Multiplatform support   | Limited        | Yes              | Yes                       |
+| Cross-language                 | Yes            | No               | No                        |
+| Transport                      | HTTP/2 (fixed) | Pluggable (Ktor) | Pluggable (Ktor)          |
 
-* gRPC
-  * IDL for message and rpc method
-  * override in impl class
-  * toProto() / fromProto()
-* Kotlin RPC
-  * signature in `@Rpc` interface
-  * override in impl class
-* Kotlin Remote
-  * add `@Remote` and context parameter
+---
+
+# Example Applications
+
+Written **twice** — once with Kotlin Remote, once with Kotlin RPC:
+
+- **Todo** (4 operations) — CRUD app; baselines per-application setup cost
+- **Rooms chat** (9 operations) — peer-to-peer chat; exercises distributed objects
+- **Social platform** (36 operations) — 10 microservices backend; stresses per-microservice overhead and orchestration
+- **CMS** (14 operations) — content management system with 4 hierarchical context tiers and Ktor basic authentication; exercises hierarchical contexts
+
+---
+
+# Framework-Specific Code per Application
+
+| Application                     | Kotlin Remote | Kotlin RPC | Boilerplate reduction |
+| ------------------------------- | ------------- | ---------- | --------------------- |
+| Todo (4 ops)                    | 12            | 12         | 0%                    |
+| Social platform (36 remote ops) | 89            | 136        | 35%                   |
+| CMS (14 remote ops)             | 44            | 55         | 20%                   |
+
+* Lines counted by IR traversal over both codebases
+  * @Rpc interfaces, implementations, stubs creation
+  * context parameters, @Remote annotations, config definitions, context switches
+* Similar boilerplate on small apps
+* Much less boilerplate on larger apps
+
+---
+
+# Boilerplate example
+
+<div class="columns">
+<div>
+
+**Kotlin Remote**
+
+```kotlin
+@Remote context(_: RemoteContext<UsersService>)
+suspend fun getUser(id: Long): User = dep<UserRepository>().get(id)
+
+@Remote context(_: RemoteContext<PostsService>)
+suspend fun postWithAuthor(postId: Long) = UsersService.runWith {
+    val post = dep<PostRepository>().get(postId)
+    PostWithAuthor(post, getUser(post.authorId))
+}
+```
+</div>
+<div>
+
+**Kotlin RPC**
+
+```kotlin
+@Rpc interface UsersService {
+    suspend fun getUser(id: Long): User
+}
+
+@Rpc interface PostsService {
+    suspend fun postWithAuthor(postId: Long): PostWithAuthor
+}
+
+class UsersServiceImpl : UsersService {
+    override suspend fun getUser(id: Long) = userRepo.get(id)
+}
+
+class PostsServiceImpl(private val users: UsersService) : PostsService {
+    override suspend fun postWithAuthor(postId: Long): PostWithAuthor {
+        val post = dep<PostRepository>().get(postId)
+        return PostWithAuthor(post, users.getUser(post.authorId))
+    }
+}
+```
+</div>
+</div>
+
+---
+
+# Performance Comparison
+
+* Per-Call Latency
+* Local Dispatch overhead
+* Distributed garbage collection performance
+* Artifact size
+
+**Result:** No significant differences with Kotlin RPC
 
 ---
 
 # Limitations
 
-- **Designed for shared codebase** — works best when client and server share the remote function source; separate codebases require duplicating signatures
-- **No cross-language support** — both sides must be Kotlin
-- **Serialization** — remote functions' parameters and return values must be serializable
-- **Coroutine context** — not preserved across remote boundary
+- Narrow scope of application
+- Dependency on experimental Kotlin features
+
+---
+
+# Future work
+
+- Code slicing
+- Streaming
+- Remote lambdas
 
 ---
 
 # Summary
 
-1. Developed Kotlin Remote — lightweight RPC framework that uses context parameters to eliminate service interface boilerplate
-
-2. All objectives were completed
-
-3. All requirements were met
+1. Developed **Kotlin Remote** — RPC framework that uses context parameters for remote calls
+2. Tiers and remote objects support, remote calls visible at call site
+3. Boilerplate reduction vs Kotlin RPC:
+   - Social platform (36 ops): **35% less** framework code
+   - CMS (14 ops): **20% less** framework code
+   - Todo (4 ops): **tied**
+4. No performance degradation
 
 ---
 
@@ -392,119 +488,28 @@ No reflection needed — works on **all KMP targets** (JVM, JS, Native, Wasm).
 
 ---
 
-# Future Work
-
-1. **Code slicing** — split artifacts per node using `RemoteConfig` types as labels; only include reachable code in each deployment artifact
-
-2. **Remote lambdas** — make function values serializable for higher-order remote calls
-
-5. **Bidirectional communication** — stream data bidirectionally using Flows like in gRPC
-
-3. **Performance optimization** — skip default parameters
-
-4. **Security hardening** — stub URL validation
-
----
-
-# Comparison with Alternatives
-
-| Criterion                        | **gRPC**           | **Kotlin RPC**           | **Kotlin Remote**        |
-| -------------------------------- | ------------------ | ------------------------ | ------------------------ |
-| Service interface required       | Yes (protobuf IDL) | Yes (`@Rpc` interface)   | No                       |
-| Top-level functions              | No                 | No                       | Yes                      |
-| Remote call visible at call site | No                 | No                       | Yes (context param)      |
-| Cross-language                   | Yes                | No                       | No                       |
-| Multiplatform (KMP)              | Partial            | Yes                      | Yes                      |
-| Transport                        | HTTP/2             | Pluggable (Ktor default) | Pluggable (Ktor default) |
-| Remote classes / objects         | No                 | No                       | Yes                      |
-
----
-
 # Todo App — Kotlin Remote
 
 **4 CRUD operations, H2 database, Ktor server**
 
 ```kotlin
-// API.kt — the ENTIRE remote API (4 functions, no interface needed)
-@Remote context(_: RemoteContext<ServerConfig>)
-suspend fun createTodo(request: CreateTodoRequest): Todo = repository.create(request)
+@Remote
+context(_: RemoteContext<ServerConfig>)
+suspend fun createTodo(request: CreateTodoRequest): Todo =
+    Dependencies.repository.create(request)
 
-@Remote context(_: RemoteContext<ServerConfig>)
-suspend fun updateTodo(id: Long, request: UpdateTodoRequest): Todo = repository.update(id, request)
+@Remote
+context(_: RemoteContext<ServerConfig>)
+suspend fun updateTodo(id: Long, request: UpdateTodoRequest): Todo =
+    Dependencies.repository.update(id, request)
 
-@Remote context(_: RemoteContext<ServerConfig>)
-suspend fun deleteTodo(id: Long) = repository.delete(id)
+@Remote
+context(_: RemoteContext<ServerConfig>)
+suspend fun deleteTodo(id: Long) = Dependencies.repository.delete(id)
 
-@Remote context(_: RemoteContext<ServerConfig>)
-suspend fun todos(): List<Todo> = repository.readAll()
-```
-
-```kotlin
-// Client — 4 lines of actual usage code
-context(ServerConfig.asContext()) {
-    createTodo(CreateTodoRequest("Buy milk"))
-    createTodo(CreateTodoRequest("Sell cow"))
-    println(todos())
-}
-```
-
----
-
-# Todo App — gRPC
-
-```protobuf
-// todo.proto — IDL file (gRPC requires this)
-service TodoService {
-    rpc CreateTodo (CreateTodoRequest) returns (TodoResponse);
-    rpc UpdateTodo (UpdateTodoRequest) returns (TodoResponse);
-    rpc DeleteTodo (DeleteTodoRequest) returns (Empty);
-    rpc ListTodos (Empty) returns (TodoListResponse);
-}
-message TodoResponse { int64 id = 1; string title = 2; bool done = 3; string created_at = 4; }
-message CreateTodoRequest { string title = 1; }
-message UpdateTodoRequest { int64 id = 1; optional string title = 2; optional bool done = 3; }
-message DeleteTodoRequest { int64 id = 1; }
-message TodoListResponse { repeated TodoResponse todos = 1; }
-```
-
-```kotlin
-// Server — service implementation class (delegates to repository, like Kotlin Remote)
-class TodoServiceImpl : TodoServiceGrpcKt.TodoServiceCoroutineImplBase() {
-    override suspend fun createTodo(request: Req): TodoResponse = repository.create(request).toProto()
-    override suspend fun updateTodo(request: Req): TodoResponse = repository.update(request).toProto()
-    override suspend fun deleteTodo(request: Req): Empty { repository.delete(request.id); return Empty }
-    override suspend fun listTodos(request: Empty): TodoListResponse = /* ... */
-}
-```
-
-Plus: proto-to-domain mapping functions
-
----
-
-# Todo App — Kotlin RPC
-
-```kotlin
-// Service interface (required by kRPC)
-@Rpc
-interface TodoService {
-    suspend fun createTodo(request: CreateTodoRequest): Todo
-    suspend fun updateTodo(id: Long, request: UpdateTodoRequest): Todo
-    suspend fun deleteTodo(id: Long)
-    suspend fun todos(): List<Todo>
-}
-
-// Service implementation class (required by kRPC)
-class TodoServiceImpl : TodoService {
-    override suspend fun createTodo(request: CreateTodoRequest) = repository.create(request)
-    override suspend fun updateTodo(id: Long, request: UpdateTodoRequest) = repository.update(id, request)
-    override suspend fun deleteTodo(id: Long) = repository.delete(id)
-    override suspend fun todos(): List<Todo> = repository.readAll()
-}
-```
-
-```kotlin
-val todoService = client.withService<TodoService>()
-todoService.createTodo(CreateTodoRequest("Buy milk"))
+@Remote
+context(_: RemoteContext<ServerConfig>)
+suspend fun todos(): List<Todo> = Dependencies.repository.readAll()
 ```
 
 ---
