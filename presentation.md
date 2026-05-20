@@ -69,21 +69,20 @@ style: |
 
 Student: Aleksandr Stupnikov
 Actual supervisor: Ilmir Usmanov
+Supervisor: Anton Podkopaev
 
 ---
 
 # Problem Statement and Motivation
 
-Kotlin is used for **network-heavy** software: microservices, client-server apps, distributed systems.
+Kotlin used for **network-heavy shared codebase** software
+* Client-server apps, microservices, distributed networks
+  * Business logic — unique
+  * Network code — repetitive, **boilerplate**
+* Client, server, multiple microservices in one project
+</br>
 
-These projects often use a **shared codebase** — client and server, or multiple microservices, live in the same Kotlin project.
-
-Application code:
-
-* **Business logic** — unique per application, high value
-* **Network code** — repetitive across applications, *boilerplate*
-
-**Problem:** even in a shared codebase, the network part is too big
+**Problem:** network part is too big
 
 ---
 
@@ -91,26 +90,22 @@ Application code:
 
 * Ktor
 * gRPC
-* Kotlin RPC
+* Kotlin RPC (kRPC)
 
 ---
 
-# The Boilerplate Problem — Ktor
+# Ktor Boilerplate
 
-Ktor requires to manually write:
-
-- Routing logic (`get("/api/pizza/{id}")`)
-- Serialization / deserialization
+- Routing logic
+- Serialization and deserialization
 - HTTP client calls
 - Error handling and status codes
 
-This gives **fine control**, but sometimes it is unnecessary.
+Gives **fine control**, but is unnecessary in **shared codebase**
 
 ---
 
-# The Boilerplate Problem — Existing RPC
-
-**gRPC** and **Kotlin RPC** reduce boilerplate, but require using a service, they are **RMI**:
+# kRPC and gRPC Boilerplate
 
 ```kotlin
 @Rpc interface PizzaShop {
@@ -125,69 +120,61 @@ val pizzaShop = client.withService<PizzaShop>()
 pizzaShop.orderPizza(Pizza("Pepperoni"))
 ```
 
-**Drawbacks of the service-based approach:**
-1. Must declare and implement an interface just for remote functions
-2. Top-level functions cannot be called remotely
-3. Remote calls are invisible at the call site
+**Drawbacks:**
+1. Declare and implement an interface just for remote functions
+1. Top-level functions cannot be called remotely
+1. Remote calls are invisible at the call site
+
 
 ---
 
 # Goals and Objectives
 
-**Goal:** Develop an RPC framework for Kotlin Multiplatform **shared-codebase** projects that reduces boilerplate compared to existing approaches
+**Goal:** Develop RPC framework for Kotlin Multiplatform shared-codebase projects that reduces boilerplate compared to existing approaches
 
 **Objectives:**
-1. Prototype RPC framework using *context parameters*
+1. Prototype RPC framework using **context parameters**
 2. Prototype support for distributed objects
-3. Implement and test
-4. Evaluate by comparing with alternatives
-
----
-
-# Requirements
-1. Enable calling **any** named Kotlin function remotely
-2. Distinguish remote functions from local ones **at the type level**
-3. Preserve **Kotlin Multiplatform** compatibility (no reflection)
+3. Implement as Kotlin compiler plugin with runtime library
+4. Evaluate by comparing with alternatives on example projects
 
 ---
 
 # Background — Context Parameters
 
-Kotlin's experimental *context parameters* — implicit function parameters resolved from the enclosing scope.
+* Experimental Kotlin feature
+* Implicit function parameters resolved from enclosing scope
+* Express environmental requirements in type system
 
 ```kotlin
 context(logger: Logger)
 fun greet(name: String) {
-    logger.info("Hello, $name")  // logger is passed implicitly
+    logger.info("Hello, $name")
 }
 
 fun main() {
     val logger = Logger()
-    context(logger) {
-        greet("World")  // no need to pass logger explicitly
+    context(logger) {     // or with(logger)
+        greet("World")    // logger is passed implicitly
     }
 }
 ```
 
-- Declared with `context(...)` before the function
-- Resolved **automatically** at the call site — no explicit argument needed
-- Provide a way to express **environmental requirements** in the type system
-
 ---
 
-# Key Idea — Context Parameters for RPC
+# Context Parameters for RPC
 
-Use context parameters to carry **remote execution configuration** implicitly:
+Context parameters to carry **remote execution configuration** implicitly:
 
 ```kotlin
+@Remote
 context(ctx: RemoteContext<RemoteConfig>)
 suspend fun multiply(lhs: Long, rhs: Long): Long
 ```
 
-- `RemoteContext` is resolved **implicitly** from the call site
-- Determines **where** the function executes (locally or remotely)
-- Describes **how** to execute the function (if it executes remotely)
-- Makes remote calls **visible at the type level** — you always see the context parameter in the signature
+- Determines where the function executes (locally or remotely)
+- Describes how to remotely execute the function
+- Visible at the type level and at call side
 
 ---
 
@@ -201,8 +188,9 @@ class ConfiguredContext<T : RemoteConfig>(val config: T) : RemoteContext<T>
 
 <!-- - `Nothing` is Kotlin's bottom type → subtype of every type
 - `out T` (covariance) → `RemoteContext<Nothing>` subtypes `RemoteContext<T>` for **all** `T` -->
-- Any `@Remote` function can be called in `LocalContext` — always type-checks
-- On the server, functions are invoked in `LocalContext` → original body executes
+- Remote functions can be called in `LocalContext` or `ConfiguredContext<T>`
+- `LocalContext` — original body executes locally
+- `ConfiguredContext<T: RemoteConfig>` — network query using `T`
 
 ---
 
@@ -217,8 +205,8 @@ suspend fun multiply(lhs: Long, rhs: Long) = lhs * rhs
 **Client call:**
 ```kotlin
 fun main() = runBlocking {
-    context(ConfiguredContext(ServerConfig)) {
-        println(multiply(6, 7))       // remote call over HTTP
+    context(ConfiguredContext(ServerConfig("localhost:8080"))) {
+        println(multiply(6, 7)) // remote call over HTTP
     }
 }
 ```
@@ -232,30 +220,31 @@ context(LocalContext) { multiply(6, 7) }
 
 # What Compiler Plugin Generates
 
-The `@Remote` annotation triggers a **body transformation** via IR plugin:
+<!-- `@Remote` annotation triggers a **body transformation** via IR plugin: -->
 
+**User writes:**
 ```kotlin
-// User writes:
 @Remote
 context(_: RemoteContext<RemoteConfig>)
 suspend fun multiply(lhs: Long, rhs: Long) = lhs * rhs
+```
 
-// Plugin generates:
+**Plugin generates:**
+```kotlin
 context(ctx: RemoteContext<RemoteConfig>)
 suspend fun multiply(lhs: Long, rhs: Long) =
     if (ctx is LocalContext) {
-        lhs * rhs                         // original body
+        lhs * rhs // original body
     } else {
-        (ctx as ConfiguredContext<RemoteConfig>)
-            .config.client.call<Long>(
-                RemoteCall("multiply", arrayOf(lhs, rhs))
-            )
+        (ctx as ConfiguredContext<RemoteConfig>).config.client.call<Long>(
+            RemoteCall("multiply", arrayOf(lhs, rhs))
+        )
     }
 ```
 
 ---
 
-# Remote Classes — Distributed Objects
+# RemoteSerializable classes — Distributed Objects
 
 ```kotlin
 @RemoteSerializable
@@ -282,25 +271,26 @@ ServerConfig.runWith {
 
 # Ktor Integration
 
-Framework is **transport-agnostic** by design. `core-ktor` module provides HTTP integration:
+Framework is **transport-agnostic**, but Ktor integration is provided out of the box
 
 ```kotlin
-// Server setup — full access to Ktor ecosystem
 embeddedServer(Netty, port = 8080) {
-    install(Authentication) {
-        basic("auth") { validate { ... } }
-    }
     install(KRemote) { callableMap = genCallableMap() }
     routing {
-        authenticate("auth") {
-            post("/secure") { handleRemoteCall() }
-        }
-        remote("/call")  // unprotected endpoint
+        remote("/call")
     }
 }.start()
 ```
 
-Authentication, logging, CORS, rate limiting — all standard Ktor features work.
+Authentication, logging, CORS, rate limiting — all standard Ktor features work
+
+---
+
+# Kotlin Remote module structure
+</br>
+<center>
+    <img src="module-graph.svg" alt="Description" width="60%" align="center">
+</center>
 
 --- 
 
