@@ -255,31 +255,6 @@ suspend fun multiply(lhs: Long, rhs: Long) =
 
 ---
 
-# KMP support
-
-No reflection on KMP → need to gather remote functions metadata statically
-
-The plugin replaces `genCallableMap()` intrinsic calls with metadata collected at compile time:
-
-```kotlin
-// User writes:
-val map = genCallableMap()
-
-// Plugin replaces with:
-val map = CallableMap(
-    "pkg.multiply" to RemoteCallable(
-        returnType  = typeOf<Long>(),
-        parameters  = arrayOf(typeOf<Long>(), typeOf<Long>()),
-        invokator   = { args -> multiply(args[0] as Long, args[1] as Long) }
-    ),
-    // ... entry for every @Remote function in the source
-)
-```
-
-No reflection needed — works on **all KMP targets** (JVM, JS, Native, Wasm).
-
----
-
 # Remote Classes — Distributed Objects
 
 ```kotlin
@@ -302,34 +277,6 @@ ServerConfig.runWith {
     calc.multiply(7)            // state = 5 * 6 * 7 = 210
 }
 ```
-
----
-
-# Remote Classes — How It Works
-
-<div class="columns">
-<div>
-
-**Serialization:**
-- Real instance stored in `RemoteInstancesPool` on the server
-- Client receives a *stub* (just ID + URL)
-- Stub is a generated subclass
-
-</div>
-<div>
-
-**Invocation:**
-- Method call on stub triggers remote call
-- Server looks up real instance by ID
-- Executes method on the real object
-
-</div>
-</div>
-
-**Garbage Collection:**
-- Lease-based: client periodically renews leases for held stubs
-- When leases expire, server removes instance from pool
-- Uses weak references to detect when client drops stubs
 
 ---
 
@@ -391,6 +338,67 @@ What code must be written **for each new remote function**:
 3. All requirements were met
 
 ---
+
+---
+
+# Kotlin network technologies
+
+* Ktor
+* gRPC
+* Kotlin RPC
+
+---
+
+# KMP support
+
+No reflection on KMP → need to gather remote functions metadata statically
+
+The plugin replaces `genCallableMap()` intrinsic calls with metadata collected at compile time:
+
+```kotlin
+// User writes:
+val map = genCallableMap()
+
+// Plugin replaces with:
+val map = CallableMap(
+    "pkg.multiply" to RemoteCallable(
+        returnType  = typeOf<Long>(),
+        parameters  = arrayOf(typeOf<Long>(), typeOf<Long>()),
+        invokator   = { args -> multiply(args[0] as Long, args[1] as Long) }
+    ),
+    // ... entry for every @Remote function in the source
+)
+```
+
+No reflection needed — works on **all KMP targets** (JVM, JS, Native, Wasm).
+
+---
+
+# Remote Classes — How It Works
+
+<div class="columns">
+<div>
+
+**Serialization:**
+- Real instance stored in `RemoteInstancesPool` on the server
+- Client receives a *stub* (just ID + URL)
+- Stub is a generated subclass
+
+</div>
+<div>
+
+**Invocation:**
+- Method call on stub triggers remote call
+- Server looks up real instance by ID
+- Executes method on the real object
+
+</div>
+</div>
+
+**Garbage Collection:**
+- Lease-based: client periodically renews leases for held stubs
+- When leases expire, server removes instance from pool
+- Uses weak references to detect when client drops stubs
 
 ---
 
