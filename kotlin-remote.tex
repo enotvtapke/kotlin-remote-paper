@@ -1778,15 +1778,33 @@ pass enabled and prints the side-by-side comparison; the underlying JSON files c
 exact line numbers in each \texttt{.kt} file that contributed to the total, so the count
 is fully auditable.
 
+The operational rule for what counts as framework-specific is symmetric between the two
+frameworks: a line is counted only if it would not be present in an equivalent in-process
+Kotlin program that did not use any RPC framework but expressed the same business logic.
+Concretely, on the Kotlin Remote side this admits the \kotlini{@Remote} annotation, the
+\kotlini{context(_: RemoteContext<...>)} parameter clause, \kotlini{context(...) \{ ... \}}
+and \kotlini{with(...) \{ ... \}} blocks whose argument is a \kotlini{RemoteContext} or
+\kotlini{RemoteConfig}, \kotlini{.asContext()} and \kotlini{runWith \{ ... \}} calls, and
+\kotlini{RemoteConfig} subtype declarations. On the Kotlin RPC side it admits the
+\kotlini{@Rpc} annotation, the entire \kotlini{@Rpc} interface (declaration, every method
+signature, closing brace), the impl class shell (declaration line through the opening brace
+plus the closing brace), and \kotlini{withService<...>} / \kotlini{registerService<...>}
+call sites. The pass deliberately does \emph{not} count the \kotlini{suspend fun} signature
+of a \kotlini{@Remote} function, the \kotlini{override} signature lines of methods inside
+\kotlini{@Rpc} impl classes, the bodies of either kind of method, or call sites that invoke
+a remote function (\kotlini{service.foo()} on a Kotlin RPC stub or a bare \kotlini{foo()}
+inside a Kotlin Remote \kotlini{context(...) \{ ... \}} block), because those lines describe
+business logic and would be present in a non-network version of the same project.
+
 \begin{table}[!h]
   \begin{center}
     \begin{tabular}{lrrr}
       \toprule
       Application & Kotlin Remote & Kotlin RPC & Per-op (KR / krpc) \\
       \midrule
-      Todo (4 ops)                    &  25 &  25 & ${\sim}$ 6 / 6 \\
-      Social platform (36 remote ops) & 150 & 265 & ${\sim}$ 4 / 7 \\
-      CMS (14 remote ops)             &  72 & 103 & ${\sim}$ 5 / 7 \\
+      Todo (4 ops)                    &  12 &  12 & ${\sim}$ 3 / 3 \\
+      Social platform (36 remote ops) &  89 & 136 & ${\sim}$ 2 / 4 \\
+      CMS (14 remote ops)             &  44 &  55 & ${\sim}$ 3 / 4 \\
       \bottomrule
     \end{tabular}
     \caption{Framework-specific code per application. Rooms chat is excluded; see discussion below.}\label{loc_table}
@@ -1794,44 +1812,48 @@ is fully auditable.
 \end{table}
 
 Three patterns emerge from the table. For the Todo application the two frameworks
-produce exactly the same number of framework-specific lines (25 versus 25). The reason
+produce exactly the same number of framework-specific lines (12 versus 12). The reason
 is that there is simply too little network code in the application for the structural
 differences between Kotlin Remote and Kotlin RPC to register as a gap. Todo exposes
 four remote functions consumed from one desktop UI through one server, and on each side
-the costs cancel almost line for line: Kotlin Remote pays around three lines per
-function (the \kotlini{@Remote} annotation, the \kotlini{context(...)} declaration and
-the suspend function signature) plus a small \kotlini{RemoteConfig} object, while Kotlin
-RPC pays roughly two lines per function spread across an \kotlini{@Rpc} interface and a
-matching implementation class plus a few lines of fixed scaffolding for those two types.
-With only four remote operations there is not enough material for either pattern to
-compound. The UI side of the comparison is identical: both clients open one
-service handle at startup and make nine direct remote calls from inside their UI
-handlers. We therefore read this as a baseline result, not a win or a loss for either
+the costs cancel almost line for line: Kotlin Remote pays two marker lines per remote
+function (\kotlini{@Remote} annotation and \kotlini{context(_: RemoteContext<...>)}
+clause) plus a small \kotlini{RemoteConfig} object, while Kotlin RPC pays roughly one
+line per function inside the \kotlini{@Rpc} interface plus the fixed scaffolding of one
+interface declaration and one matching implementation class shell. With only four remote
+operations there is not enough material for either pattern to compound. The UI side of
+the comparison contributes a single line per side as well: a \kotlini{withService<...>}
+call in the Kotlin RPC client and a \kotlini{runWith \{ ... \}} call in the Kotlin Remote
+client. We therefore read this as a baseline result, not a win or a loss for either
 framework: very small APIs are too small to choose a framework over.
 
 The CMS application has four tiers and fourteen remote operations. Kotlin Remote uses
-about 30\% fewer framework-specific lines than Kotlin RPC (72 versus 103), and
-the difference is concentrated in the implementation classes: Kotlin RPC requires four
-\kotlini{@Rpc} interface declarations plus four implementation classes whose bodies do
-nothing beyond delegating to repositories, while Kotlin Remote expresses the same
-information as fourteen top-level \kotlini{@Remote} functions and four short
-\kotlini{RemoteConfig} subtypes. Hierarchical contexts also pay off here: the Kotlin
-RPC version has to obtain a separate stub for each tier the client wants to call, while
-in Kotlin Remote any session that satisfies a higher-tier configuration also satisfies
-all lower tiers via subtyping. Cross-tier internal composition is local in Kotlin Remote
-(calls dispatch their local bodies because \kotlini{LocalContext} is a subtype of
-\kotlini{RemoteContext<X>} for any \kotlini{X}), and either makes spurious network calls
-back to localhost or has to step around the service abstraction in Kotlin RPC.
+about 20\% fewer framework-specific lines than Kotlin RPC (44 versus 55), and the
+difference is concentrated in the structural scaffolding that Kotlin RPC requires for
+each tier: four \kotlini{@Rpc} interface declarations and four implementation class
+shells, none of which have a counterpart in the Kotlin Remote version where the fourteen
+operations live as top-level \kotlini{@Remote} functions and four short
+\kotlini{RemoteConfig} subtypes carry the tier identity in the type system. Hierarchical
+contexts also pay off here: the Kotlin RPC version has to obtain a separate stub for
+each tier the client wants to call, while in Kotlin Remote any session that satisfies a
+higher-tier configuration also satisfies all lower tiers via subtyping. Cross-tier
+internal composition is local in Kotlin Remote (calls dispatch their local bodies because
+\kotlini{LocalContext} is a subtype of \kotlini{RemoteContext<X>} for any \kotlini{X}),
+and either makes spurious network calls back to localhost or has to step around the
+service abstraction in Kotlin RPC.
 
-The social platform shows the largest absolute gap (150 versus 265, Kotlin Remote is
-about 43\% shorter). Per operation that is roughly four lines for Kotlin
-Remote and seven for Kotlin RPC. Two things contribute. First, ten microservices in
-Kotlin RPC mean ten implementation classes that mostly delegate to repositories. Second,
-orchestrating microservices like \kotlini{feed} and the BFFs require explicit stub
-creation (\kotlini{withService} calls) for every dependent microservice, and matching
+The social platform shows the largest absolute gap (89 versus 136, Kotlin Remote is
+about 35\% shorter). Per operation that is roughly two lines for Kotlin Remote and four
+for Kotlin RPC. Two things contribute. First, ten microservices in Kotlin RPC mean ten
+\kotlini{@Rpc} interfaces and ten implementation class shells, none of which have a
+counterpart on the Kotlin Remote side where the same thirty-six operations are top-level
+\kotlini{@Remote} functions in a single \kotlini{API.kt}. Second, orchestrating
+microservices like \kotlini{feed} and the BFFs require explicit stub creation
+(\kotlini{withService} calls) for every dependent microservice, and matching
 \kotlini{registerService} calls inside \kotlini{AllLauncher}. Kotlin Remote replaces both
-with one \kotlini{API.kt} file of top-level functions plus one \kotlini{Configs.kt} with
-ten \kotlini{RemoteConfig} objects.
+with one \kotlini{Configs.kt} file containing ten \kotlini{RemoteConfig} objects, picked
+out at the call site by writing a \kotlini{context(SomeServiceConfig.asContext()) \{ ... \}}
+block.
 
 Rooms chat is omitted from Table \ref{loc_table} because the two implementations do
 different things at the architectural level. In Kotlin Remote each user runs its own
@@ -2140,9 +2162,9 @@ The evaluation gives a more nuanced answer to the main research question than a 
 On the two larger applications, the social platform with ten microservices
 (section~\ref{social_app_section}) and the CMS with four hierarchical capability tiers
 (section~\ref{cms_app_section}), Kotlin Remote reduces framework-specific code by
-approximately 43\% and 30\% respectively compared to Kotlin RPC. On the smallest application,
+approximately 35\% and 20\% respectively compared to Kotlin RPC. On the smallest application,
 Todo (four remote functions invoked from a desktop UI), the two frameworks tie at the same
-line count (25 vs 25): the application has too little network code for the structural
+line count (12 vs 12): the application has too little network code for the structural
 differences between the two frameworks to compound into a measurable gap. Rooms chat is not
 directly comparable because the two implementations make architecturally different choices
 (peer-to-peer remote calls vs server-pushed \kotlini{Flow}). The honest summary is that
