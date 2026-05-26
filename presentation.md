@@ -85,15 +85,7 @@ Kotlin used for **network-heavy shared codebase** software
 * Client, server, multiple microservices in one project
 </br>
 
-**Problem:** network part is too big
-
----
-
-# Kotlin network technologies
-
-* Ktor
-* gRPC
-* Kotlin RPC (kRPC)
+**Problem:** network code is too big
 
 ---
 
@@ -131,18 +123,6 @@ pizzaShop.orderPizza(Pizza("Pepperoni"))
 
 ---
 
-# Goals and Objectives
-
-**Goal:** Develop RPC framework for Kotlin Multiplatform shared-codebase projects that reduces boilerplate compared to existing approaches
-
-**Objectives:**
-1. Prototype RPC framework using **context parameters**
-2. Prototype support for distributed objects
-3. Implement as Kotlin compiler plugin with runtime library
-4. Evaluate by comparing with alternatives on example projects
-
----
-
 # Background — Context Parameters
 
 * Experimental Kotlin feature
@@ -165,6 +145,17 @@ fun main() {
 
 ---
 
+# Goals and Objectives
+
+**Goal:** Develop RPC framework for Kotlin Multiplatform shared-codebase projects that reduces boilerplate compared to existing approaches
+
+**Objectives:**
+1. Design RPC framework using **context parameters**
+2. Implement as Kotlin compiler plugin with runtime library
+3. Evaluate by comparing with alternatives on example projects
+
+---
+
 # Context Parameters for RPC
 
 Context parameters to carry **remote execution configuration** implicitly:
@@ -176,12 +167,12 @@ suspend fun multiply(lhs: Long, rhs: Long): Long
 ```
 
 - Determines where the function executes (locally or remotely)
-- Describes how to remotely execute the function
-- Visible at the type level and at call side
+- Carries information to make remote call
+- Visible at the type level
 
 ---
 
-# RemoteContext Implememntation
+# RemoteContext Implementation
 
 ```kotlin
 sealed interface RemoteContext<out T : RemoteConfig>
@@ -208,13 +199,13 @@ suspend fun multiply(lhs: Long, rhs: Long) = lhs * rhs
 **Client call:**
 ```kotlin
 fun main() = runBlocking {
-    context(ConfiguredContext(ServerConfig("localhost:8080"))) {
+    context(ServerConfig.asContext()) {
         println(multiply(6, 7)) // remote call over HTTP
     }
 }
 ```
 
-**Server call (inside internal lib):**
+**Server call (on the server):**
 ```kotlin
 context(LocalContext) { multiply(6, 7) }
 ```
@@ -247,30 +238,6 @@ suspend fun multiply(lhs: Long, rhs: Long) =
 
 ---
 
-# RemoteSerializable classes — Distributed Objects
-
-```kotlin
-@RemoteSerializable
-class Calculator(private var state: Int) {
-    @Remote context(_: RemoteContext<RemoteConfig>)
-    suspend fun multiply(x: Int): Int { state *= x; return state }
-
-    companion object {
-        @Remote context(_: RemoteContext<RemoteConfig>)
-        suspend operator fun invoke(init: Int) = Calculator(init)
-    }
-}
-```
-
-```kotlin
-ServerConfig.runWith {
-    val calc = Calculator(5)    // created on server, stub returned
-    calc.multiply(6)            // method runs on server, state preserved
-    calc.multiply(7)            // state = 5 * 6 * 7 = 210
-}
-```
-
----
 
 # Ktor Integration
 
@@ -289,54 +256,28 @@ Authentication, logging, CORS, rate limiting — all standard Ktor features work
 
 ---
 
-# Kotlin Remote module structure
-</br>
-<center>
-    <img src="module-graph.svg" alt="Description" width="60%" align="center">
-</center>
-
----
-
-# Feature Comparison
-
-| Feature                        | **gRPC**       | **Kotlin RPC**   | **Kotlin Remote**         |
-| ------------------------------ | -------------- | ---------------- | ------------------------- |
-| Service interface required     | Yes (IDL)      | Yes (`@Rpc`)     | No                        |
-| Top-level functions            | No             | No               | Yes                       |
-| Remoteness marked at call site | No             | No               | Enclosing `context` block |
-| Hierarchical context tiers     | No             | No               | Yes                       |
-| Stateful remote objects        | No             | No               | Yes                       |
-| Streaming                      | Yes            | Yes              | No                        |
-| Kotlin Multiplatform support   | Limited        | Yes              | Yes                       |
-| Cross-language                 | Yes            | No               | No                        |
-| Transport                      | HTTP/2 (fixed) | Pluggable (Ktor) | Pluggable (Ktor)          |
-
----
-
 # Example Applications
 
-Written **twice** — once with Kotlin Remote, once with Kotlin RPC:
+Written **twice** — once with *Kotlin Remote*, once with **Kotlin RPC**:
 
-- **Todo** (4 operations) — CRUD app; baselines per-application setup cost
-- **Rooms chat** (9 operations) — peer-to-peer chat; exercises distributed objects
-- **Social platform** (36 operations) — 10 microservices backend; stresses per-microservice overhead and orchestration
-- **CMS** (14 operations) — content management system with 4 hierarchical context tiers and Ktor basic authentication; exercises hierarchical contexts
+- **Todo** (4 operations) — CRUD app
+- **Social platform** (36 operations) — 10 microservices backend
+- **CMS** (14 operations) — content management system with Ktor authentication
 
 ---
 
 # Framework-Specific Code per Application
 
-| Application                     | Kotlin Remote | Kotlin RPC | Boilerplate reduction |
+| Application                     | *Kotlin Remote* | Kotlin RPC | Boilerplate reduction |
 | ------------------------------- | ------------- | ---------- | --------------------- |
 | Todo (4 ops)                    | 12            | 12         | 0%                    |
-| Social platform (36 remote ops) | 89            | 136        | 35%                   |
 | CMS (14 remote ops)             | 44            | 55         | 20%                   |
+| Social platform (36 remote ops) | 89            | 136        | 35%                   |
 
-* Lines counted by IR traversal over both codebases
+* Lines counted by IR traversal
   * @Rpc interfaces, implementations, stubs creation
   * context parameters, @Remote annotations, config definitions, context switches
-* Similar boilerplate on small apps
-* Much less boilerplate on larger apps
+* Savings appear at scale
 
 ---
 
@@ -345,7 +286,7 @@ Written **twice** — once with Kotlin Remote, once with Kotlin RPC:
 <div class="columns">
 <div>
 
-**Kotlin Remote**
+***Kotlin Remote***
 
 ```kotlin
 @Remote context(_: RemoteContext<UsersService>)
@@ -387,28 +328,10 @@ class PostsServiceImpl(private val users: UsersService) : PostsService {
 
 ---
 
-# Performance Comparison
-
-* Per-Call Latency
-* Local Dispatch overhead
-* Distributed garbage collection performance
-* Artifact size
-
-**Result:** No significant differences with Kotlin RPC
-
----
-
-# Limitations
-
-- Narrow scope of application
-- Dependency on experimental Kotlin features
-
----
-
 # Future work
 
-- Code slicing
-- Streaming
+- Code slicing — use `RemoteConfig` types to compile per-node artifacts containing only reachable code
+- Bidirectional Streaming
 - Remote lambdas
 
 ---
@@ -416,22 +339,56 @@ class PostsServiceImpl(private val users: UsersService) : PostsService {
 # Summary
 
 1. Developed **Kotlin Remote** — RPC framework that uses context parameters for remote calls
-2. Tiers and remote objects support, remote calls visible at call site
+2. No interface required, remote calls visible at call site, remote objects support
 3. Boilerplate reduction vs Kotlin RPC:
    - Social platform (36 ops): **35% less** framework code
    - CMS (14 ops): **20% less** framework code
    - Todo (4 ops): **tied**
-4. No performance degradation
+4. No framework-level performance overhead
 
 ---
 
 ---
 
-# Kotlin network technologies
+# Limitations
 
-* Ktor
-* gRPC
-* Kotlin RPC
+- Shared-codebase Kotlin only — not for independently developed projects
+- Depends on experimental context parameters
+---
+
+# Performance Comparison
+
+| Benchmark | Kotlin Remote | Kotlin RPC |
+| --------- | ------------- | ---------- |
+| `echoLong` p50 latency | 312 µs | 298 µs |
+| `listTodos(100)` p50 latency | 393 µs | 339 µs |
+| Local dispatch overhead | +6.7 ns/call | — |
+| Bytecode per function | ~2 190 B | ~2 500 B |
+
+* Latency gap is transport-level: HTTP/1.1 per-call vs WebSocket — not framework overhead
+* Local dispatch in `LocalContext` is one `is`-check, essentially free
+
+---
+
+# Feature Comparison
+
+| Feature                        | **gRPC**       | **Kotlin RPC**   | ***Kotlin Remote***       |
+| ------------------------------ | -------------- | ---------------- | ------------------------- |
+| Service interface required     | Yes (IDL)      | Yes (`@Rpc`)     | No                        |
+| Top-level functions            | No             | No               | Yes                       |
+| Remoteness marked at call site | No             | No               | Enclosing `context` block |
+| Stateful remote objects        | No             | No               | Yes                       |
+| Kotlin Multiplatform support   | Limited        | Yes              | Yes                       |
+| Streaming                      | Yes            | Yes              | No                        |
+| Cross-language                 | Yes            | No               | No                        |
+
+---
+
+# Kotlin Remote module structure
+</br>
+<center>
+    <img src="module-graph.svg" alt="Description" width="60%" align="center">
+</center>
 
 ---
 
@@ -460,6 +417,31 @@ No reflection needed — works on **all KMP targets** (JVM, JS, Native, Wasm).
 
 ---
 
+# RemoteSerializable classes — Distributed Objects
+
+```kotlin
+@RemoteSerializable
+class Calculator(private var state: Int) {
+    @Remote context(_: RemoteContext<RemoteConfig>)
+    suspend fun multiply(x: Int): Int { state *= x; return state }
+
+    companion object {
+        @Remote context(_: RemoteContext<RemoteConfig>)
+        suspend operator fun invoke(init: Int) = Calculator(init)
+    }
+}
+```
+
+```kotlin
+ServerConfig.runWith {
+    val calc = Calculator(5)    // created on server, stub returned
+    calc.multiply(6)            // method runs on server, state preserved
+    calc.multiply(7)            // state = 5 * 6 * 7 = 210
+}
+```
+
+---
+
 # Remote Classes — How It Works
 
 <div class="columns">
@@ -485,32 +467,6 @@ No reflection needed — works on **all KMP targets** (JVM, JS, Native, Wasm).
 - Lease-based: client periodically renews leases for held stubs
 - When leases expire, server removes instance from pool
 - Uses weak references to detect when client drops stubs
-
----
-
-# Todo App — Kotlin Remote
-
-**4 CRUD operations, H2 database, Ktor server**
-
-```kotlin
-@Remote
-context(_: RemoteContext<ServerConfig>)
-suspend fun createTodo(request: CreateTodoRequest): Todo =
-    Dependencies.repository.create(request)
-
-@Remote
-context(_: RemoteContext<ServerConfig>)
-suspend fun updateTodo(id: Long, request: UpdateTodoRequest): Todo =
-    Dependencies.repository.update(id, request)
-
-@Remote
-context(_: RemoteContext<ServerConfig>)
-suspend fun deleteTodo(id: Long) = Dependencies.repository.delete(id)
-
-@Remote
-context(_: RemoteContext<ServerConfig>)
-suspend fun todos(): List<Todo> = Dependencies.repository.readAll()
-```
 
 ---
 
