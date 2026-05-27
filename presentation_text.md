@@ -3,76 +3,128 @@ marp: true
 paginate: true
 ---
 
+# Lightweight RPC for Kotlin Multiplatform
+
 Good day. My name is Aleksandr Stupnikov. The topic of my master thesis is "Lightweight RPC for Kotlin Multiplatform".
 
 ---
 
-Kotlin is the language that is vastly used for building software that communicates over the network — backend microservices, client-server applications, distributed systems. These projects often use a shared codebase model, where client and server, or multiple microservices, live in the same Kotlin project and share data types and logic. In such projects, the application code naturally splits into two parts. The first is business logic — the unique, high-value part specific to each application. The second is network code — routing, serialization, HTTP client setup, error handling. This network code is largely repetitive across applications. In other words, it is boilerplate. Ideally, the network part should be as small as possible so that developers can focus on business logic. But even in a shared codebase, where both sides already have access to the same functions and types, the network part remains quite large. Let's look at why.
+# Problem Statement and Motivation
+
+Kotlin is widely used for network-heavy software — backend microservices, client-server applications, distributed systems. Many of these projects follow a shared-codebase model, where client and server live in the same Kotlin project and share data types and business logic. The code in such a project naturally splits into two parts: business logic, which is unique to each application, and network code, which is repetitive across almost every application. Routing, serialization, HTTP client setup, error handling — this is boilerplate that every developer writes again and again. The problem is that even in a shared codebase, where both sides are in the same project, this network part remains unnecessarily large.
 
 ---
 
-There are two main technologies used for network communication in Kotlin today. First is Ktor — a general-purpose HTTP framework from JetBrains. Second is gRPC — Google's cross-language RPC framework. And there is also not popular but promising RPC framework from JetBrains called Kotlin RPC. Each of these frameworks has a different trade-off between flexibility and the amount of boilerplate required. Let me show the specific problems with each.
+# Ktor Boilerplate
+
+The most common way to handle network communication in Kotlin is Ktor. With Ktor, the developer manually writes routing logic, serialization and deserialization of request and response bodies, HTTP client calls, and error handling. This gives fine-grained control, which is valuable when building a public API. But for internal service-to-service communication in a shared codebase, none of this control is needed, and all of it becomes pure overhead.
 
 ---
 
-With Ktor, the developer must manually write routing logic — specifying URL paths and HTTP methods. Developer also must handle serialization and deserialization of request and response bodies, write HTTP client calls and manage error handling. This gives fine-grained control, which is valuable when you need it — for example, for complex REST APIs with custom headers. But for many use cases, especially internal service-to-service communication, this level of control is unnecessary, and the boilerplate is pure overhead.
+# kRPC and gRPC Boilerplate
+
+gRPC and Kotlin RPC follow the Remote Method Invocation pattern: the developer declares a service as an interface, implements it in a class, and receives a client proxy. In a shared codebase this pattern has three specific drawbacks. First, the developer must declare and implement a service interface just to make functions remotely callable — in a shared-codebase project the function signature is already the contract, so the interface duplicates information that is already there. Second, top-level functions cannot be remote at all. Third, at the call site a remote call looks identical to a local call — nothing tells the developer this is a network operation that may fail or be slow. These are the three problems this thesis addresses.
 
 ---
 
-gRPC and Kotlin RPC take a different approach. They follow the Remote Method Invocation pattern. Developer define a service interface, implement it in a class, and then create a client proxy for that interface. This does reduce boilerplate compared to raw Ktor. However, there are significant drawbacks. First, developer must declare and implement an interface just to make functions remotely callable. Second, top-level functions cannot be called remotely at all — everything must live inside a service. Third, at the call site, a remote call looks identical to a local call. There is nothing that tells developer that this is a network operation that might fail or be slow. These are the problems we set out to solve.
+# Background — Context Parameters
+
+Before describing the solution, let me briefly explain the Kotlin feature it is built on. Context parameters are an experimental Kotlin feature that lets a function declare implicit parameters resolved from the enclosing scope. In this example, greet requires a Logger, but the caller does not pass it explicitly — it is resolved automatically from the enclosing context block. The parameter is part of the function signature, so the requirement is visible in the type. It is resolved automatically at the call site. And if no matching context exists in scope, the compiler reports an error. This gives a typed, compile-checked way to express that a function depends on something from its environment.
 
 ---
 
-The goal of this thesis is to develop an RPC framework for Kotlin Multiplatform shared-codebase projects that reduces boilerplate compared to existing approaches. The objectives are structured as follows. First, prototype an RPC framework that uses context parameters as the mechanism for expressing remote calls. I will explain context parameters later. Second, prototype support for distributed objects — remote classes whose state lives on the server. Third, implement and test the framework as a Kotlin compiler plugin with a runtime library. Fourth, evaluate the result by comparing it with existing alternatives — Ktor, gRPC, and Kotlin RPC — in terms of boilerplate and developer experience.
+# Goals and Objectives
+
+Armed with this background, I can state the goal. The goal is to develop an RPC framework for Kotlin Multiplatform shared-codebase projects that reduces boilerplate compared to existing approaches. The three objectives are: first, design an RPC framework that uses context parameters as the mechanism for expressing remote calls; second, implement the framework as a Kotlin compiler plugin together with a runtime library; third, evaluate the result by comparing it with Kotlin RPC on example projects.
 
 ---
 
-Now, the specific technical requirements the framework must satisfy. First, enable calling any named Kotlin function remotely — not just methods inside service interfaces. This means top-level functions, extension functions, class methods should all be callable. Second, distinguish remote functions from local ones at the type level, so that the developer always knows when a network call is happening — this addresses the invisibility problem we saw with gRPC and Kotlin RPC. Third, preserve Kotlin Multiplatform compatibility, so the framework works on all targets — JVM, JavaScript, Native, and WebAssembly — without relying on reflection.
+# Context Parameters for RPC
+
+The key idea is to use a context parameter to carry remote execution configuration. A function annotated with @Remote declares a context parameter of type RemoteContext. This context determines where the function executes — locally or on a remote server — and carries the information needed to make the network call. Because the parameter appears in the function signature, the remoteness of the function is visible at the type level. The developer cannot write a remote call without an enclosing context block to provide that parameter, so the remoteness is always explicit.
 
 ---
 
-Before I describe the solution, let me briefly explain the Kotlin feature we build on — context parameters. They are an experimental Kotlin feature that lets you declare implicit function parameters. In this example, the greet function requires a Logger, but the caller does not pass it explicitly. Instead, it is resolved automatically from the enclosing context block. The key properties are: context parameters are declared in the function signature, so you can see the requirement in the type; they are resolved automatically at the call site; and they provide a way to express that a function depends on something from its environment — without threading that dependency manually through every call.
+# RemoteContext Implementation
+
+RemoteContext is a sealed interface with two implementations. LocalContext means "run the original body in the current process". ConfiguredContext wraps a RemoteConfig, which holds the HTTP client configured with the server address. The covariance of the type parameter T and the fact that Nothing is Kotlin's bottom type make LocalContext a subtype of RemoteContext for any T. The consequence is that any remote function can always be called in LocalContext and will type-check. On the server, the framework provides LocalContext for all function invocations, so the original body runs directly with no network call.
 
 ---
 
-Our key idea is to use context parameters to carry remote execution configuration. A remote function declares a context parameter of type RemoteContext. This context determines where the function executes — locally or on a remote server — and describes how to reach that server. It is resolved implicitly at the call site, so the caller does not pass it manually. And critically, it makes remote calls visible at the type level — you always see the context parameter in the function signature, so you always know this function may go over the network.
+# How It Looks to the User
+
+Here is the full developer experience. The user writes a normal Kotlin function, adds the @Remote annotation and a context parameter — that is the entire declaration overhead. On the client side, the user opens a context block with a RemoteConfig object that holds the Ktor HttpClient pointing at the server. Inside that block, multiply is called exactly like a local function. The framework handles the serialization, network call, and deserialization. On the server, the same function declaration is used — the framework calls it inside a LocalContext, and the original body executes directly. One function, two execution modes, no duplication.
 
 ---
 
-Let me explain RemoteContext in details because it lies in the heart of the framework. RemoteContext is a sealed interface parameterized by a RemoteConfig type. It has two implementations. LocalContext is a singleton — it indicates that the function should execute its original body locally. ConfiguredContext wraps an actual remote configuration — a server URL, an HTTP client, and so on. Since LocalContext extends RemoteContext<Nothing> and Nothing is Kotlin's bottom type LocalContext is a subtype of RemoteContext<T> for any T. This means any remote function can always be called in a local context — it always type-checks. On the server side, functions are invoked in LocalContext, so the original body executes directly without any network call.
+# What Compiler Plugin Generates
+
+The transformation is done entirely by a Kotlin compiler plugin at the IR level. When the plugin encounters @Remote, it wraps the original body in a conditional: if the context is LocalContext, the original body runs — this is the server path. Otherwise the context must be a ConfiguredContext, and the plugin generates code that packages the function name and arguments into a RemoteCall and sends it using the HTTP client from the config. This is completely automatic — the user never writes this branching code. The plugin also replaces genCallableMap() calls with statically generated metadata for every @Remote function in the compilation unit, which is how the framework works on non-JVM KMP targets where reflection is unavailable.
 
 ---
 
-Here is the developer experience. To make a function remote, developer annotates it with @Remote annotation and adds a context parameter of type RemoteContext. The function body is the actual implementation — just normal Kotlin code. On the client side, user open a context block with a ConfiguredContext that contains the server configuration. Inside that block, user calls multiply as if it were a local function. Under the hood, this call goes over the network. On the server side — inside the framework's internals — the same function is called within LocalContext, and the original body executes directly. The developer writes the function once, and it works in both contexts.
+# Ktor Integration
+
+The framework core is transport-agnostic. The RemoteClient interface is the only transport boundary, and an alternative transport can be plugged in by providing a custom implementation. For the default case we ship a Ktor integration: the KRemote plugin handles incoming remote calls on the server side, and the remoteClient extension wraps an HttpClient for the client side. Because the transport is Ktor, the full Ktor ecosystem — authentication, logging, CORS, rate limiting — applies to remote calls automatically.
 
 ---
 
-The magic happens in a Kotlin compiler plugin. When the plugin sees the @Remote annotation, it transforms the function body at the level of intermediate representation. The original body is wrapped in a conditional. If the context is LocalContext, the original body runs — this is the server path. Otherwise, the context must be a ConfiguredContext, and the plugin generates code that packages the function name and arguments into a RemoteCall object and sends it to the server using the client from the configuration. This transformation is completely automatic. Developer writes a normal function, and the plugin handles the dual execution semantics.
+# Example Applications
+
+To evaluate the framework I developed three example applications, each written twice — once with Kotlin Remote and once with Kotlin RPC. Todo is a simple CRUD app with four remote operations that establishes the per-application baseline cost. Social platform splits a backend into ten microservices with thirty-six remote operations and stresses per-microservice overhead and cross-service orchestration. CMS has fourteen operations split across four hierarchical capability tiers with Ktor basic authentication protecting each tier.
 
 ---
 
-Supporting Kotlin Multiplatform introduces a specific challenge. On non-JVM platforms — JavaScript, Native, WebAssembly — there is no reflection. This means that program cannot discover information about itself at runtime, but our server needs to know which remote functions exist and how to invoke them. Our solution: the compiler plugin collects metadata about all remote functions at compile time. The developer calls an intrinsic function called genCallableMap(), and the compiler plugin replaces that call with a map containing entries for every @Remote function — their names, parameter types, return types, and an invocator lambda that calls the actual function. Then user only needs to pass generated map when creating a server. No reflection needed. This works on all Kotlin Multiplatform targets. This same mechanism is also used for serialization on both client and server.
+# Framework-Specific Code per Application
+
+Here are the boilerplate comparison results. Framework-specific lines are those that would not appear in an equivalent in-process program: on the Kotlin Remote side that means @Remote annotations, context parameter declarations, RemoteConfig definitions, and context switch blocks; on the Kotlin RPC side it means @Rpc interface declarations, implementation class shells, and withService and registerService call sites. On the smallest application, Todo with four operations, both frameworks produce exactly twelve lines — the API is too small for the structural difference to compound. On the Social platform with ten microservices the gap is 35%, because each microservice in Kotlin RPC requires an interface and an implementation class that have no counterpart in Kotlin Remote. On the CMS with four tiers the gap is 20%, driven by the four interface and class shells Kotlin RPC needs per tier.
 
 ---
 
-Beyond standalone functions, the framework supports distributed objects. A class annotated with @RemoteSerializable can have remote methods. In this example, Calculator holds mutable state on the server. The companion object's invoke operator is also remote — so calling Calculator(5) on the client actually creates the object on the server and returns a lightweight stub to the client. Subsequent method calls like multiply(6) are forwarded to the server, where they operate on the real object with its preserved state. From the client's perspective, it looks like a normal object, but the state lives entirely on the server.
+# Boilerplate example
+
+Here is a concrete example from the Social platform. On the left, the Kotlin Remote version: two top-level functions with an @Remote annotation and a context parameter each. The business logic is in the function body. To call getUser from inside postWithAuthor on a different microservice, you wrap the call in a context block — one extra line. On the right, the Kotlin RPC version: an @Rpc interface and an implementation class for each service, and PostsServiceImpl must take a UsersService stub as a constructor parameter. That stub has to be created before PostsServiceImpl is instantiated and threaded through its constructor. At ten microservices and thirty-six operations this pattern compounds into the 35% gap shown in the table.
 
 ---
 
-Under the hood, when a remote object is created on the server, the real instance is stored in a RemoteInstancesPool, keyed by a unique identifier. The client receives a stub — a generated subclass that contains only the ID and the server URL. When a method is called on the stub, it triggers a remote call. The server looks up the real instance by ID and executes the method on it. For garbage collection, we use a lease-based mechanism. The client periodically renews leases for the stubs it holds. When a lease expires — meaning the client no longer needs the object — the server removes the instance from the pool. On the client side, we use weak references to detect when the application drops a stub.
+# Future work
+
+Three directions were identified during development. Code slicing would use the RemoteConfig types — which already encode which node a function belongs to — to compile per-node artifacts containing only reachable code, so each service ships only the code it actually executes. Bidirectional streaming would add Flow-based communication and cover the current absence of a push-based API. Remote lambdas would allow function values to be remote callables, enabling higher-order remote functions where the operation is performed on the remote machine.
 
 ---
 
-It is worth noticing that our framework is transport-agnostic by design — the core framework does not depend on any specific  library to make network requests. However, the core-ktor module provides an out of the box integration with Ktor. Here you can see a typical server setup. The KRemote Ktor plugin is installed with the callable map. Then, inside the routing block, you can mix remote endpoints with standard Ktor features. In this example, one endpoint is protected with basic authentication, while another is open. Authentication, logging, CORS, rate limiting — everything from the Ktor ecosystem works alongside Kotlin Remote with no special configuration.
+# Summary
+
+To summarize. We developed Kotlin Remote, an RPC framework for Kotlin Multiplatform shared-codebase projects. It uses context parameters to express remote calls without a service interface — the context parameter appears in the function signature making remoteness explicit, and is resolved implicitly at the call site. On larger applications the framework reduces framework-specific code by 35% for the Social platform and 20% for the CMS compared to Kotlin RPC. All three objectives were completed, and benchmarks confirm there is no framework-level performance overhead. Thank you for your attention. I am ready for questions.
 
 ---
 
-Let's compare what a developer must write for each new remote function. With gRPC, each function requires an IDL definition for the message and the RPC method as well as an override in the implementation class, and conversion functions between protobuf and domain types. With Kotlin RPC, each function requires a signature in the @Rpc interface and an override in the implementation class. With our framework called Kotlin Remote, user just adds the @Remote annotation and a context parameter to the function itself. That is the entire per-function overhead.
+---
+
+# Limitations
+
+The framework has two main limitations. The first is scope: Kotlin Remote is designed for Kotlin-only shared-codebase projects. It does not support cross-language communication and is not meant for projects where client and server are developed independently — in those situations gRPC or Kotlin RPC remain the right tool. The second is the dependency on experimental Kotlin features: context parameters require the -Xcontext-parameters flag, and the compiler plugin API changes with each Kotlin release, requiring the plugin to be updated accordingly. There is also no streaming support — no Flow-based API.
 
 ---
 
-The framework has several limitations that are important to acknowledge. As I mentioned at the beginning, the framework is designed for the shared-codebase model — it works best when client and server are in the same Kotlin project and share the remote function source code. If you need fully separate codebases, you would have to duplicate function signatures, which adds some boilerplate back. This is a conscious design trade-off: by assuming a shared codebase, we eliminate the need for separate interface definitions entirely. The other limitations are: both sides must be Kotlin — no cross-language support; all parameters and return values must be serializable; and the coroutine context is not preserved across the remote boundary.
+# Performance Comparison
+
+Performance benchmarks were run with server and client in the same JVM process over loopback. The latency gap of roughly 50 to 100 microseconds comes from the transport choice: Kotlin Remote sends one HTTP/1.1 request per call, while Kotlin RPC multiplexes calls over a persistent WebSocket. This is a transport-level cost — a connection-reusing RemoteClient implementation would close most of it. Local dispatch when a @Remote function runs in LocalContext adds only 6.7 nanoseconds above a plain suspend call. Per-function bytecode is within 12% of Kotlin RPC. The boilerplate reduction does not come at a runtime or compiled-size penalty.
 
 ---
 
-To summarize. We developed Kotlin Remote — a lightweight RPC framework designed for Kotlin Multiplatform shared-codebase projects. It uses context parameters to eliminate the need for service interfaces and make remote calls visible at the type level. All four objectives were completed and all the requirements were met. Thank you for your attention. I am ready for questions.
+# Feature Comparison
+
+This table compares Kotlin Remote with gRPC and Kotlin RPC on the features that matter for choosing between them. Kotlin Remote does not require a service interface, supports top-level functions, makes remoteness visible through the enclosing context block, supports stateful remote objects, and allows hierarchical capability tiers through context subtyping. The main gaps compared to alternatives are no streaming support and no cross-language communication — both are deliberate scope decisions for the shared-codebase Kotlin setting.
+
+---
+
+# RemoteSerializable classes — Distributed Objects
+
+The framework also supports distributed objects. A class marked @RemoteSerializable can have @Remote methods. When such a class is returned from a remote function, the real instance is stored in a pool on the server and the client receives a generated stub — a subclass holding only an ID and the server URL. Subsequent method calls on the stub are forwarded to the server, which looks up the real instance by ID and calls the method on it, preserving state across calls. Constructors cannot have context parameters, so remote classes use a factory function or companion invoke operator annotated with @Remote.
+
+---
+
+# Remote Classes — How It Works
+
+When a @RemoteSerializable instance is serialized, the real object is added to RemoteInstancesPool on the server keyed by a generated ID, and the client receives the stub. When a method is called on the stub, it triggers a remote call passing the stub as the implicit this argument. The server deserializes the ID, looks up the real instance, and calls the method on it. This preserves mutable state across calls. To prevent memory leaks, the framework uses a lease-based garbage collector: the client periodically renews leases for stubs it holds, using weak references to detect when a stub has been collected locally. When the lease expires on the server, the instance is removed from the pool.
